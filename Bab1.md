@@ -784,5 +784,3 @@ C:\
 ```
 
 > 📝 Tabel/tree ini adalah rangkuman — untuk pengertian, fungsi, dan tools masing-masing path, kembali ke sub-bab yang tertera di setiap baris.
-
-> 📝 **Next (Bab 2 — direncanakan):** NTFS internals ($MFT, $LogFile, $UsnJrnl, timestamp SI vs FN), lalu Bab 3: Registry hive detail, Bab 4: EVTX & Event ID penting, dst. Beri tahu aku kalau mau lanjut ke bab berikutnya atau ada bagian di Bab 1 ini yang mau diperdalam/dikoreksi dulu.
