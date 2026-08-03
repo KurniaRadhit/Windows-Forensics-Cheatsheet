@@ -1,5 +1,3 @@
----
-
 ## 📌 Daftar Isi — Bab 1
 
 - [Bab 1 — Struktur Windows & Filesystem](#bab-1--struktur-windows--filesystem)
@@ -25,6 +23,8 @@
     - [1.2.9 Tabel Prioritas Investigasi](#129-tabel-prioritas-investigasi)
     - [1.2.10 Root-Level Files & Folder yang Sering Terlewat](#1210-root-level-files--folder-yang-sering-terlewat)
     - [1.2.11 Full Path Tree — Seluruh C:\\ (Master Reference)](#1211-full-path-tree--seluruh-c-master-reference)
+
+*(Bab 2 dan seterusnya menyusul — akan fokus ke NTFS internals, $MFT, Registry, EVTX, dst.)*
 
 ---
 
@@ -784,7 +784,5 @@ C:\
 ```
 
 > 📝 Tabel/tree ini adalah rangkuman — untuk pengertian, fungsi, dan tools masing-masing path, kembali ke sub-bab yang tertera di setiap baris.
-
----
 
 > 📝 **Next (Bab 2 — direncanakan):** NTFS internals ($MFT, $LogFile, $UsnJrnl, timestamp SI vs FN), lalu Bab 3: Registry hive detail, Bab 4: EVTX & Event ID penting, dst. Beri tahu aku kalau mau lanjut ke bab berikutnya atau ada bagian di Bab 1 ini yang mau diperdalam/dikoreksi dulu.
