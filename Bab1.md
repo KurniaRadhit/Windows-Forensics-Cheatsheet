@@ -1,3 +1,5 @@
+---
+
 ## 📌 Daftar Isi — Bab 1
 
 - [Bab 1 — Struktur Windows & Filesystem](#bab-1--struktur-windows--filesystem)
@@ -7,7 +9,10 @@
     - [1.1.3 Partisi Umum di Disk Windows](#113-partisi-umum-di-disk-windows)
     - [1.1.4 VBR (Volume Boot Record)](#114-vbr-volume-boot-record)
     - [1.1.5 Cara Analisa di FTK Imager / KAPE](#115-cara-analisa-di-ftk-imager--kape)
-    - [1.1.6 Full Path Tree — Disk & Partition Level](#116-full-path-tree--disk--partition-level)
+    - [1.1.6 Unallocated Space & Slack Space](#116-unallocated-space--slack-space)
+    - [1.1.7 Full Path Tree — Disk & Partition Level](#117-full-path-tree--disk--partition-level)
+    - [1.1.8 Disk Image Format](#118-disk-image-format)
+    - [1.1.9 Hidden Partition & Recovery Artefacts](#119-hidden-partition--recovery-artefacts)
   - [1.2 Struktur Direktori Windows (C:\\)](#12-struktur-direktori-windows-c)
     - [1.2.1 Root C:\\ — Overview](#121-root-c--overview)
     - [1.2.2 Windows\\](#122-windows)
@@ -180,7 +185,45 @@ mmls disk.dd
 
 ---
 
-#### 1.1.6 Full Path Tree — Disk & Partition Level
+#### 1.1.6 Unallocated Space & Slack Space
+
+Ini sering muncul di CTF, khususnya soal *"cari flag yang disembunyikan di area yang tidak terpakai"*.
+
+```
+Disk
+├── Allocated Space    ← Cluster yang sedang dipakai file aktif
+├── Unallocated Space  ← Cluster bebas (belum/tidak dipakai file manapun)
+└── Partition Gap      ← Ruang kosong ANTAR partisi (bukan di dalam partisi)
+```
+
+| Istilah | Pengertian | Kenapa penting di forensik/CTF |
+|---|---|---|
+| **Unallocated Space** | Cluster yang menurut `$Bitmap` berstatus "kosong", tapi bisa saja masih menyimpan data lama (file yang dihapus tapi belum ditimpa) | Tempat paling umum sembunyikan/recover file terhapus — carve pakai `PhotoRec`/`Scalpel`/`foremost` |
+| **Volume Slack** | Ruang sisa di **akhir volume** kalau ukuran volume tidak habis dibagi cluster/sector penuh (jarang, biasanya kecil) | Kadang dipakai teknik anti-forensik sederhana untuk selipkan data kecil |
+| **File Slack** | Ruang sisa antara **akhir data logis file** dan **akhir cluster** yang dialokasikan untuknya (karena cluster punya ukuran tetap, mis. 4 KB, sedangkan file jarang pas kelipatannya) | Bisa menyimpan sisa data file LAMA yang pernah menempati cluster itu — classic tempat sembunyi data di CTF |
+| **RAM Slack** | Sub-bagian dari file slack — ruang antara akhir file dan akhir *sector* terakhir yang diisi dari RAM saat penulisan (khusus filesystem lama seperti FAT; NTFS modern biasanya diisi nol) | Historically penting di FAT, kurang relevan di NTFS modern tapi tetap bisa muncul di soal teori |
+| **Partition Gap** | Ruang kosong **di antara dua partisi** (bukan slack dalam partisi) — bisa terjadi karena disk alignment atau sengaja dikosongkan attacker | FTK Imager & `mmls` menampilkan ini sebagai "Unallocated" antar entry partition table — cek manual kalau ada gap mencurigakan |
+
+**Cara Analisa:**
+```bash
+# FTK Imager: klik kanan pada Unallocated Space (highlight merah di tree) → Export
+# Lalu carve dengan tool khusus:
+
+# PhotoRec (interaktif)
+photorec disk.dd
+
+# Foremost (signature-based carving)
+foremost -t all -i disk.dd -o output_folder/
+
+# Scalpel (mirip foremost, config-based)
+scalpel disk.dd -o output_folder/
+```
+
+> 💡 **Tip CTF:** Kalau soal bilang *"flag tidak ada di file manapun"*, coba urutan: cek **Unallocated Space** dulu (carving), lalu **File Slack** di file besar/system file, baru **Partition Gap**. Banyak CTF DFIR menaruh flag sebagai string biasa di unallocated space tanpa enkripsi apapun.
+
+---
+
+#### 1.1.7 Full Path Tree — Disk & Partition Level
 
 Versi lengkap, mencakup skema **GPT/UEFI modern** dan **MBR/BIOS legacy**, plus seluruh NTFS system file di root volume yang sering dilewatkan.
 
@@ -210,7 +253,7 @@ Versi lengkap, mencakup skema **GPT/UEFI modern** dan **MBR/BIOS legacy**, plus 
 │   ├── $LogFile             ← Journal transaksi NTFS (undo/redo)
 │   ├── $Volume               ← Info volume (label, versi NTFS, dirty flag)
 │   ├── $AttrDef              ← Definisi tipe atribut NTFS
-│   ├── $Bitmap               ← Peta cluster terpakai/kosong
+│   ├── $Bitmap               ← Peta cluster terpakai/kosong (lihat 1.1.6)
 │   ├── $Boot                 ← Salinan VBR + bootstrap code
 │   ├── $BadClus              ← Daftar bad sector/cluster
 │   ├── $Secure               ← ACL & security descriptor
@@ -268,6 +311,84 @@ Versi lengkap, mencakup skema **GPT/UEFI modern** dan **MBR/BIOS legacy**, plus 
 
 ---
 
+#### 1.1.8 Disk Image Format
+
+Karena targetmu HTB dan CTF, kamu akan sering ketemu format image yang berbeda-beda tergantung tool akuisisi yang dipakai penyelenggara.
+
+```
+.E01     ← EnCase Evidence Format (paling umum, dari FTK Imager/EnCase; punya metadata + hash + kompresi)
+.EX01    ← EnCase Evidence Format v2 (mendukung disk >2TB, hash SHA-1/256 ganda)
+.AFF     ← Advanced Forensic Format (open-source, jarang di CTF modern, lebih umum di tool lama)
+.DD      ← Raw/flat image (dd-style, bit-for-bit, tanpa metadata/kompresi)
+.RAW     ← Sama seperti .dd, penamaan berbeda tergantung tool akuisisi
+.VHD     ← Virtual Hard Disk (format Microsoft, bisa langsung di-mount native di Windows)
+.VHDX    ← Versi VHD yang lebih baru, mendukung ukuran lebih besar & resiliency
+.VMDK    ← Virtual Machine Disk (format VMware)
+.QCOW2   ← QEMU Copy-On-Write v2 (format image untuk QEMU/KVM, sering di lab Linux)
+```
+
+| Format | Ciri Khas | Cara Buka/Mount |
+|---|---|---|
+| `.E01` / `.EX01` | Ada header, chunk terkompresi, embedded MD5/SHA1 untuk verifikasi integritas | FTK Imager, Autopsy, `ewfmount` (libewf) |
+| `.AFF` | Open format, jarang dipakai lagi | `afflib`, Autopsy (dengan plugin) |
+| `.DD` / `.RAW` | Bit-for-bit copy tanpa kompresi/metadata — paling "mentah" | `mmls`/`mount` langsung (Linux), FTK Imager, atau `Arsenal Image Mounter` |
+| `.VHD` / `.VHDX` | Native Windows — bisa di-mount lewat Disk Management tanpa tool tambahan | Klik kanan → **Mount** (Windows), atau `Mount-VHD` (PowerShell) |
+| `.VMDK` | Terkait erat dengan snapshot VMware, kadang datang bersama file `.vmsn`/`.vmem` (memory snapshot VM!) | Arsenal Image Mounter, `qemu-img convert`, VMware sendiri |
+| `.QCOW2` | Copy-on-write, sering punya snapshot chain | `qemu-nbd`, `qemu-img convert qcow2 dd.raw` |
+
+**Cara verifikasi & konversi cepat:**
+```bash
+# Cek info image E01 (metadata, hash, ukuran)
+ewfinfo image.E01
+
+# Convert VMDK/QCOW2 ke raw untuk kompatibilitas tool lain
+qemu-img convert -O raw image.vmdk image.raw
+qemu-img convert -O raw image.qcow2 image.raw
+
+# Mount E01 di Linux (libewf + affuse/xmount)
+ewfmount image.E01 /mnt/ewf
+mount -o ro,loop /mnt/ewf/ewf1 /mnt/evidence
+```
+
+> 💡 **Tip CTF:** Kalau soal kasih file `.vmdk` + `.vmem`/`.vmsn`, itu artinya kamu dapat **disk snapshot DAN memory snapshot** sekaligus dari VM yang sama — sering perlu dianalisis berbarengan (disk forensic + memory forensic pakai Volatility).
+
+---
+
+#### 1.1.9 Hidden Partition & Recovery Artefacts
+
+CTF suka menyembunyikan flag di partisi yang tidak langsung terlihat di Windows Explorer korban.
+
+```
+Recovery Partition   ← WinRE, kadang berisi snapshot OS asli / config awal
+OEM Partition         ← Dari vendor laptop (Dell/HP/Lenovo dll), berisi tool recovery bawaan pabrik
+Hidden Partition      ← Partisi tanpa drive letter, sengaja "disembunyikan" (via diskpart/attacker)
+BitLocker Partition   ← Partisi terenkripsi (FVE) — butuh recovery key/password untuk dibuka
+```
+
+| Jenis Partisi | Nilai Forensik | Cara Deteksi/Analisa |
+|---|---|---|
+| **Hidden Volume** | Partisi yang ada di partition table tapi tidak di-assign drive letter — sering dipakai attacker untuk staging data/tools | FTK Imager & `mmls` tetap menampilkannya walau tidak muncul di Explorer korban; cek juga via `diskpart > list volume` di live system |
+| **OEM Partition** | Berisi image factory reset / tool recovery vendor — kadang menyimpan versi OS/aplikasi awal sebelum modifikasi attacker | Mount & bandingkan hash file dengan versi "sekarang" di C:\ untuk deteksi perubahan |
+| **Recovery Image (WinRE)** | `Winre.wim` bisa di-mount seperti image Windows biasa — kadang berisi script/tool custom yang di-inject attacker untuk persistence pre-boot | `dism /mount-wim /wimfile:Winre.wim /index:1 /mountdir:C:\mount` |
+| **Old User Data** | Sisa partisi/volume dari instalasi OS sebelumnya (dual-boot lama, atau disk yang di-reuse) — file lama sering belum benar-benar terhapus | Cari signature filesystem lain di unallocated space (`mmls`, `testdisk`) |
+| **BitLocker Partition** | Volume terenkripsi (FVE — Full Volume Encryption) — flag/bukti bisa ada di dalamnya | Butuh recovery key (48 digit) atau password; cek `Windows\System32\LogFiles\` / registry untuk kemungkinan key ter-cache, atau `manage-bde -status` di live system |
+
+**Cara Analisa:**
+```bash
+# Lihat semua partisi termasuk yang hidden/tanpa drive letter
+mmls disk.dd
+
+# Mount WinRE image untuk inspeksi isi
+dism /mount-wim /wimfile:C:\Recovery\WindowsRE\Winre.wim /index:1 /mountdir:C:\mount /readonly
+
+# Cek status BitLocker di live system
+manage-bde -status C:
+```
+
+> 💡 **Tip CTF:** Kalau soal bilang *"kami sudah cek seluruh C:\ tapi flag tidak ditemukan"* — itu sinyal kuat buat cek partition table penuh (`mmls`) dulu, karena kemungkinan besar flag ada di partisi lain yang tidak ter-mount sebagai C:\.
+
+---
+
 ### 1.2 Struktur Direktori Windows (C:\\)
 
 #### 1.2.1 Root C:\\ — Overview
@@ -283,19 +404,18 @@ C:\
 ├── PerfLogs\                  ← Log performance counter (jarang dipakai, sering kosong) (lihat 1.2.7)
 ├── $Recycle.Bin\              ← Recycle bin, per-user (berdasarkan SID) (lihat 1.2.8)
 │
-│   ── Folder/file lain yang sering terlewat, lihat detail di 1.2.10 ──
-├── System Volume Information\ ← Volume Shadow Copy & Restore Point
-├── Recovery\                   ← Metadata WinRE lokal
-├── Documents and Settings\    ← Junction legacy → Users\ (kompatibilitas XP)
-├── PerfLogs\Admin\             ← Sub Data Collector Set (kalau ada)
-├── inetpub\                    ← (kalau IIS terinstall) web root server
-├── Windows.old\                ← Sisa OS lama setelah upgrade Windows (goldmine artefak lama!)
-├── pagefile.sys                ← Memory swap
-├── hiberfil.sys                ← Snapshot RAM hibernate
-├── swapfile.sys                ← Swap UWP apps
-├── bootmgr                     ← Windows Boot Manager
-├── BOOTNXT                     ← Penanda next-boot
-└── $MFT, $LogFile, $Boot, dst  ← NTFS system file (hidden, lihat 1.1.6)
+│   ── Folder/file lain yang sering terlewat, dibahas detail di 1.2.10 ──
+├── System Volume Information\
+├── Recovery\
+├── Documents and Settings\
+├── Config.Msi\
+├── Windows.old\
+├── pagefile.sys
+├── swapfile.sys
+├── hiberfil.sys
+├── DumpStack.log.tmp
+├── bootmgr
+└── BOOTNXT
 ```
 
 > 📌 **Prinsip dasar forensik direktori:** Setiap folder di atas punya "peran" berbeda dalam merekonstruksi cerita insiden — Windows\ untuk config & log sistem, Users\ untuk aktivitas manusia, ProgramData\ untuk aplikasi yang jalan sebagai service/background. Folder tambahan seperti `Windows.old\` dan `System Volume Information\` sering jadi "harta karun" karena menyimpan salinan data lama yang sudah tidak ada di lokasi normalnya.
@@ -558,3 +678,113 @@ Kalau baru mulai investigasi dan bingung folder mana yang dicek duluan, urutan p
 | 9 | `PerfLogs\` | Biasanya terakhir, kecuali soal spesifik minta resource anomaly |
 
 ---
+
+#### 1.2.10 Root-Level Files & Folder yang Sering Terlewat
+
+Selain 7 folder utama di 1.2.1, ada file/folder lain langsung di `C:\` yang sering luput dicek padahal bisa jadi kunci jawaban.
+
+| File/Folder | Pengertian & Fungsi | Nilai Forensik |
+|---|---|---|
+| `System Volume Information\` | Menyimpan Volume Shadow Copy (VSS) & Restore Point | Bisa dipakai buka **versi lama file** yang sudah dimodifikasi/dihapus attacker — akses butuh privilege SYSTEM. Tool: `vssadmin list shadows`, mount shadow copy via `mklink` symbolic link |
+| `Recovery\` | Metadata WinRE lokal (beda dari partisi Recovery terpisah) | Kadang berisi log recovery/reset yang menunjukkan sistem pernah di-reset (bisa jadi anti-forensik attacker) |
+| `Documents and Settings\` | Junction/symlink kompatibilitas legacy ke `Users\` (peninggalan era Windows XP) | Kalau di-`dir`, terlihat seperti folder biasa tapi sebenarnya reparse point — jangan bingung saat listing filesystem |
+| `Config.Msi\` | Folder sementara untuk proses install/uninstall MSI (rollback data) | Kadang menyimpan sisa file `.rbf`/`.rbs` dari instalasi software yang di-uninstall — bisa jadi bukti software pernah terpasang |
+| `Windows.old\` | Backup OS lama setelah proses **upgrade Windows** (mis. Win10→Win11) | **Goldmine artefak**: berisi salinan penuh `Windows\`, `Users\`, registry hive lama — bisa dipakai lihat kondisi sistem SEBELUM upgrade/insiden |
+| `pagefile.sys` | Virtual memory swap file | Bisa berisi fragmen data RAM (password, string command, dll) — carving string/strings search sangat berguna |
+| `swapfile.sys` | Swap khusus untuk UWP/Modern apps | Serupa `pagefile.sys` tapi scope aplikasi UWP |
+| `hiberfil.sys` | Snapshot **seluruh isi RAM** saat sistem hibernate | Setara memory dump — bisa dianalisis pakai `Volatility`/`Rekall` untuk lihat proses & koneksi jaringan yang aktif saat hibernate |
+| `DumpStack.log.tmp` | Log sementara terkait proses crash dump/dump stack Windows | Biasanya tidak signifikan sendirian, tapi keberadaannya bisa mengindikasikan sistem pernah crash/BSOD |
+| `bootmgr` | Windows Boot Manager (binary, bukan folder) | Cek integritas — modifikasi di sini bisa indikasi **bootkit** |
+| `BOOTNXT` | Penanda konfigurasi next-boot (dipakai WinRE/recovery) | Jarang jadi fokus, tapi relevan untuk timeline reboot/recovery |
+
+```bash
+# Contoh: list semua Volume Shadow Copy yang tersedia
+vssadmin list shadows
+
+# Contoh: mount shadow copy tertentu supaya bisa dibrowse
+mklink /d C:\shadow_copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\
+
+# Contoh: cari string mencurigakan (password, command) di pagefile
+strings pagefile.sys | findstr /i "password powershell -enc"
+```
+
+> ⚠️ **Paling sering jadi "jawaban tersembunyi" di CTF:** `Windows.old\` (kalau ada) dan `System Volume Information\` — dua-duanya nyimpen **versi masa lalu** dari sistem, sedangkan kebanyakan peserta cuma cek kondisi sistem "sekarang".
+
+---
+
+#### 1.2.11 Full Path Tree — Seluruh C:\\ (Master Reference)
+
+Rangkuman satu tabel besar seluruh path yang sudah dibahas di Bab 1, dari root sampai ke sub-folder terdalam — dipakai sebagai referensi cepat/contekan saat investigasi.
+
+```
+C:\
+│
+├── $MFT, $MFTMirr, $LogFile, $Volume, $Bitmap, $Boot, $Secure, $UpCase, $Extend\ (lihat 1.1.7)
+├── System Volume Information\                         ← VSS & Restore Point (1.2.10)
+├── Recovery\                                            ← Metadata WinRE lokal (1.2.10)
+├── Documents and Settings\                              ← Junction legacy → Users\ (1.2.10)
+├── Config.Msi\                                           ← Rollback data MSI installer (1.2.10)
+├── Windows.old\                                          ← Backup OS sebelum upgrade (1.2.10)
+├── pagefile.sys / swapfile.sys / hiberfil.sys           ← Memory-related files (1.2.10)
+├── DumpStack.log.tmp                                     ← Log crash dump (1.2.10)
+├── bootmgr / BOOTNXT                                     ← Boot manager & penanda next-boot (1.2.10)
+│
+├── Windows\                                              (1.2.2)
+│   ├── System32\                                         (1.2.3)
+│   │   ├── config\ (SYSTEM, SOFTWARE, SAM, SECURITY, DEFAULT)
+│   │   │   └── RegBack\                                  ← Backup registry hive periodik
+│   │   ├── winevt\Logs\ (*.evtx)
+│   │   ├── Tasks\ / TaskCache\                            ← Scheduled task XML
+│   │   ├── wbem\Repository\                               ← WMI database (fileless persistence)
+│   │   ├── LogFiles\ (WMI\, Firewall\, W3SVC*\)
+│   │   ├── drivers\ (*.sys)
+│   │   ├── drivers\etc\hosts
+│   │   ├── spool\PRINTERS\
+│   │   └── LogFiles\ / LSA
+│   ├── SysWOW64\
+│   ├── Prefetch\ (*.pf)
+│   ├── Temp\
+│   ├── SoftwareDistribution\
+│   ├── Logs\ (CBS\, DISM\)
+│   ├── Panther\ (unattend.xml, setupact.log)
+│   ├── INF\ (setupapi.dev.log)
+│   ├── Debug\ (PASSWD.LOG, NetSetup.log)
+│   ├── security\
+│   ├── WinSxS\
+│   └── Minidump\ + MEMORY.DMP                            ← Crash dump kernel (BSOD forensic)
+│
+├── Users\                                                (1.2.4)
+│   ├── <username>\
+│   │   ├── NTUSER.DAT
+│   │   ├── AppData\Local\Microsoft\Windows\UsrClass.dat  ← ShellBags
+│   │   ├── AppData\Local\Temp\
+│   │   ├── AppData\Local\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt
+│   │   ├── AppData\Roaming\Microsoft\Windows\Recent\
+│   │   │   ├── *.lnk
+│   │   │   ├── AutomaticDestinations\*.automaticDestinations-ms
+│   │   │   └── CustomDestinations\*.customDestinations-ms
+│   │   ├── AppData\Local\Programs\                        ← Installer per-user (tanpa admin, sering dipakai fake installer)
+│   │   ├── Desktop\ / Documents\ / Downloads\ / Pictures\ / Videos\ / Music\
+│   │   └── AppData\LocalLow\                               ← Data app low-integrity (browser sandbox)
+│   └── Public\
+│
+├── Program Files\ & Program Files (x86)\                 (1.2.5)
+│
+├── ProgramData\                                           (1.2.6)
+│   ├── Microsoft\Windows Defender\Scans\History\
+│   ├── Microsoft\Windows\WER\
+│   └── Package Cache\
+│
+├── PerfLogs\                                               (1.2.7)
+│
+└── $Recycle.Bin\                                           (1.2.8)
+    └── <SID user>\
+        ├── $I*.ext   ← metadata
+        └── $R*.ext   ← isi file
+```
+
+> 📝 Tabel/tree ini adalah rangkuman — untuk pengertian, fungsi, dan tools masing-masing path, kembali ke sub-bab yang tertera di setiap baris.
+
+---
+
+> 📝 **Next (Bab 2 — direncanakan):** NTFS internals ($MFT, $LogFile, $UsnJrnl, timestamp SI vs FN), lalu Bab 3: Registry hive detail, Bab 4: EVTX & Event ID penting, dst. Beri tahu aku kalau mau lanjut ke bab berikutnya atau ada bagian di Bab 1 ini yang mau diperdalam/dikoreksi dulu.
