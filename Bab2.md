@@ -1,8 +1,3 @@
-# 🧠 Windows Disk Forensics Cheatsheet
-> Untuk HTB Sherlock / CTF DFIR — FTK Imager, KAPE, PECmd, EvtxECmd, MFTECmd, RBCmd, SQLECmd, dll.
-
----
-
 ## 📌 Daftar Isi — Bab 2
 
 - [Bab 2 — File Sistem NTFS & Master File Table](#bab-2--file-sistem-ntfs--master-file-table)
