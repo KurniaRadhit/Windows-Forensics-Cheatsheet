@@ -1,30 +1,37 @@
 ## 📌 Daftar Isi — Bab 1
 
-- [Bab 1 — Struktur Windows & Filesystem](#bab-1--struktur-windows--filesystem)
-  - [1.1 Struktur Drive & Partisi](#11-struktur-drive--partisi)
-    - [1.1.1 Physical Disk vs Partition vs Volume](#111-physical-disk-vs-partition-vs-volume)
-    - [1.1.2 MBR vs GPT](#112-mbr-vs-gpt)
-    - [1.1.3 Partisi Umum di Disk Windows](#113-partisi-umum-di-disk-windows)
-    - [1.1.4 VBR (Volume Boot Record)](#114-vbr-volume-boot-record)
-    - [1.1.5 Cara Analisa di FTK Imager / KAPE](#115-cara-analisa-di-ftk-imager--kape)
-    - [1.1.6 Unallocated Space & Slack Space](#116-unallocated-space--slack-space)
-    - [1.1.7 Full Path Tree — Disk & Partition Level](#117-full-path-tree--disk--partition-level)
-    - [1.1.8 Disk Image Format](#118-disk-image-format)
-    - [1.1.9 Hidden Partition & Recovery Artefacts](#119-hidden-partition--recovery-artefacts)
+- [Bab 1 — Struktur Windows & Filesystem](#bab-1-struktur-windows-filesystem)
+  - [1.1 Struktur Drive & Partisi](#11-struktur-drive-partisi)
+    - [1.1.1 Sector vs Cluster](#111-sector-vs-cluster)
+    - [1.1.2 LBA (Logical Block Addressing)](#112-lba-logical-block-addressing)
+    - [1.1.3 Filesystem Overview](#113-filesystem-overview)
+    - [1.1.4 Physical Disk vs Partition vs Volume](#114-physical-disk-vs-partition-vs-volume)
+    - [1.1.5 MBR vs GPT](#115-mbr-vs-gpt)
+    - [1.1.6 Partisi Umum di Disk Windows](#116-partisi-umum-di-disk-windows)
+    - [1.1.7 VBR (Volume Boot Record)](#117-vbr-volume-boot-record)
+    - [1.1.8 Boot Process Overview](#118-boot-process-overview)
+    - [1.1.9 Disk Signature / GUID](#119-disk-signature-guid)
+    - [1.1.10 Cara Analisa di FTK Imager / KAPE](#1110-cara-analisa-di-ftk-imager-kape)
+    - [1.1.11 Unallocated Space & Slack Space](#1111-unallocated-space-slack-space)
+    - [1.1.12 Full Path Tree — Disk & Partition Level](#1112-full-path-tree-disk-partition-level)
+    - [1.1.13 Disk Image Format](#1113-disk-image-format)
+    - [1.1.14 Hidden Partition & Recovery Artefacts](#1114-hidden-partition-recovery-artefacts)
   - [1.2 Struktur Direktori Windows (C:\\)](#12-struktur-direktori-windows-c)
-    - [1.2.1 Root C:\\ — Overview](#121-root-c--overview)
+    - [1.2.1 Root C:\\ — Overview](#121-root-c-overview)
     - [1.2.2 Windows\\](#122-windows)
     - [1.2.3 Windows\\System32\\](#123-windowssystem32)
-    - [1.2.4 Users\\](#124-users)
-    - [1.2.5 Program Files\\ & Program Files (x86)\\](#125-program-files--program-files-x86)
-    - [1.2.6 ProgramData\\](#126-programdata)
-    - [1.2.7 PerfLogs\\](#127-perflogs)
-    - [1.2.8 $Recycle.Bin\\](#128-recyclebin)
-    - [1.2.9 Tabel Prioritas Investigasi](#129-tabel-prioritas-investigasi)
-    - [1.2.10 Root-Level Files & Folder yang Sering Terlewat](#1210-root-level-files--folder-yang-sering-terlewat)
-    - [1.2.11 Full Path Tree — Seluruh C:\\ (Master Reference)](#1211-full-path-tree--seluruh-c-master-reference)
-
-*(Bab 2 dan seterusnya menyusul — akan fokus ke NTFS internals, $MFT, Registry, EVTX, dst.)*
+    - [1.2.4 Arsitektur Windows: System32 vs SysWOW64](#124-arsitektur-windows-system32-vs-syswow64)
+    - [1.2.5 Users\\](#125-users)
+    - [1.2.6 AppData Tree](#126-appdata-tree)
+    - [1.2.7 Environment Variable](#127-environment-variable)
+    - [1.2.8 Program Files\\ & Program Files (x86)\\](#128-program-files-program-files-x86)
+    - [1.2.9 ProgramData\\](#129-programdata)
+    - [1.2.10 PerfLogs\\](#1210-perflogs)
+    - [1.2.11 $Recycle.Bin\\](#1211-recyclebin)
+    - [1.2.12 Tabel Prioritas Investigasi](#1212-tabel-prioritas-investigasi)
+    - [1.2.13 Root-Level Files & Folder yang Sering Terlewat](#1213-root-level-files-folder-yang-sering-terlewat)
+    - [1.2.14 Full Path Tree — Seluruh C:\\ (Master Reference)](#1214-full-path-tree-seluruh-c-master-reference)
+- [📍 Penutup Bab 1 — Windows Storage Architecture (Big Picture)](#📍-penutup-bab-1-windows-storage-architecture-big-picture)
 
 ---
 
@@ -32,7 +39,99 @@
 
 ### 1.1 Struktur Drive & Partisi
 
-#### 1.1.1 Physical Disk vs Partition vs Volume
+#### 1.1.1 Sector vs Cluster
+
+**Pengertian & Fungsi:**
+Sebelum bicara MBR/GPT/VBR, penting dulu paham hierarki penyimpanan data paling dasar — semua struktur di atasnya (termasuk NTFS internals di Bab 2) dibangun di atas konsep ini.
+
+```
+Disk
+ │
+ ├── Sector    ← unit terkecil level HARDWARE/disk
+ │
+ ├── Cluster   ← unit terkecil level FILESYSTEM (kumpulan beberapa sector)
+ │
+ └── File      ← selalu dialokasikan dalam kelipatan cluster, bukan byte
+```
+
+Contoh cluster size 4096 byte dengan sector 512 byte:
+
+```
+Disk
+│
+├── Sector 0
+├── Sector 1
+├── Sector 2
+├── ...
+│
+Cluster 0  = Sector 0–7
+Cluster 1  = Sector 8–15
+Cluster 2  = Sector 16–23
+```
+
+| Istilah | Pengertian |
+|---|---|
+| **Physical Sector** | Ukuran sector sesungguhnya di media fisik disk/SSD |
+| **Logical Sector** | Ukuran sector yang "dilaporkan" ke OS — bisa beda dari physical sector |
+| **512B sector** | Standar lama, masih dipakai untuk kompatibilitas |
+| **4K sector (Advanced Format / 4Kn)** | Standar disk modern; kalau di-emulasi ke 512B logis disebut **512e** |
+| **Cluster (Allocation Unit)** | Unit terkecil yang dipakai filesystem untuk mengalokasikan file — gabungan beberapa sector berurutan |
+
+> ⚠️ **Konsekuensi penting:** Karena file selalu dialokasikan dalam kelipatan cluster, file 1 byte tetap "memakan" 1 cluster penuh (misal 4096 byte). Sisa ruang yang tidak terpakai ini disebut **file slack** (lihat 1.1.11) — tempat klasik data lama bisa nyangkut, sering jadi tempat sembunyi flag di CTF.
+
+**Kenapa wajib dipahami sebelum masuk NTFS internals (Bab 2):**
+
+| Konsep NTFS | Bergantung pada cluster karena... |
+|---|---|
+| `$MFT` | Setiap record menunjuk lokasi data dalam satuan cluster |
+| `$Bitmap` | Melacak cluster mana yang terpakai/kosong |
+| Data Runs | Menyatakan rentang cluster tempat data file disimpan |
+| Resident | Data kecil disimpan langsung di MFT record (tidak butuh cluster terpisah) |
+| Nonresident | Data disimpan di luar MFT, dirujuk lewat data run (berbasis cluster) |
+
+```bash
+# Cek ukuran sector & cluster di live system
+fsutil fsinfo ntfsinfo C:
+```
+
+---
+
+#### 1.1.2 LBA (Logical Block Addressing)
+
+**Pengertian & Fungsi:**
+LBA adalah skema penomoran sector secara linear dan berurutan, menggantikan skema lama CHS (Cylinder-Head-Sector) yang bergantung pada geometri fisik disk. Semua tool forensik disk-level (FTK Imager, Autopsy, Hex Editor, SleuthKit) menampilkan offset dalam satuan LBA/sector, jadi ini istilah yang wajib dikenali sejak awal.
+
+```
+Sector Number →   0     1     2     3     4     5   ...
+LBA           →  LBA0  LBA1  LBA2  LBA3  LBA4  LBA5  ...
+```
+
+- Setiap sector di disk punya satu nomor LBA unik, dimulai dari `LBA 0`.
+- `LBA 0` pada skema GPT berisi **Protective MBR** (lihat 1.1.5), bukan partition table asli.
+- `LBA 1` berisi **GPT Header**, `LBA 2` dan seterusnya berisi **Partition Entry Array**.
+
+> 💡 Tanpa memahami LBA, akan bingung kenapa GPT "mulai" di `LBA 1`, bukan `LBA 0` — padahal `LBA 0` tetap terisi (oleh Protective MBR, demi kompatibilitas tool lama yang cuma paham MBR).
+
+---
+
+#### 1.1.3 Filesystem Overview
+
+**Pengertian & Fungsi:**
+Sebelum fokus total ke NTFS di bab-bab berikutnya, kenali dulu filesystem lain yang mungkin ditemui investigator, supaya jelas kenapa hampir seluruh DFIR Windows berpusat di NTFS.
+
+| Filesystem | Umum Dipakai Untuk | Catatan Forensik |
+|---|---|---|
+| FAT16 | Media sangat lama, embedded system | Jarang ditemui di kasus modern |
+| FAT32 | USB/flashdisk lama, kartu memori kamera lama | Tidak ada journaling, metadata timestamp terbatas |
+| exFAT | Flashdisk modern, kartu SD kapasitas besar | Tidak ada journaling, dipakai lintas OS (Windows/Mac) |
+| **NTFS** | **Partisi sistem Windows (default)** | Punya `$MFT`, journaling (`$LogFile`), ACL, sangat kaya metadata → **fokus utama cheatsheet ini** |
+| ReFS | Windows Server, storage pool besar | Resilient filesystem, mulai muncul di kasus server/enterprise |
+
+> 📌 **Kesimpulan singkat:** hampir seluruh DFIR Windows terpusat di NTFS karena di situlah OS berjalan dan menyimpan hampir semua artefak (registry, event log, prefetch, dsb) — makanya seluruh Bab 2 dikhususkan untuk NTFS internals.
+
+---
+
+#### 1.1.4 Physical Disk vs Partition vs Volume
 
 Sebelum masuk ke isi file, kamu perlu paham **level-level fisik/logikal** dari sebuah disk image (`.E01`, `.dd`, `.raw`, `.vhd`, dll):
 
@@ -59,7 +158,7 @@ Sebelum masuk ke isi file, kamu perlu paham **level-level fisik/logikal** dari s
 
 ---
 
-#### 1.1.2 MBR vs GPT
+#### 1.1.5 MBR vs GPT
 
 Ini adalah dua skema **partition table** yang menentukan bagaimana disk dibagi.
 
@@ -96,7 +195,7 @@ Akhir disk: Backup GPT Header + Backup Partition Entry Array
 
 ---
 
-#### 1.1.3 Partisi Umum di Disk Windows
+#### 1.1.6 Partisi Umum di Disk Windows
 
 Contoh layout disk Windows 10/11 modern (GPT + UEFI):
 
@@ -125,7 +224,7 @@ Contoh layout disk Windows 10/11 modern (GPT + UEFI):
 
 ---
 
-#### 1.1.4 VBR (Volume Boot Record)
+#### 1.1.7 VBR (Volume Boot Record)
 
 VBR ada di **awal setiap partisi/volume** (beda dengan MBR/GPT yang levelnya disk).
 
@@ -150,7 +249,64 @@ VBR ada di **awal setiap partisi/volume** (beda dengan MBR/GPT yang levelnya dis
 
 ---
 
-#### 1.1.5 Cara Analisa di FTK Imager / KAPE
+#### 1.1.8 Boot Process Overview
+
+**Pengertian & Fungsi:**
+Bagian ini menyambungkan seluruh istilah yang sudah dibahas (MBR, GPT, VBR, bootmgr, BCD) menjadi satu alur boot yang utuh — supaya tidak jadi istilah lepas-lepas.
+
+```
+Power On
+   │
+   ▼
+BIOS / UEFI              ← firmware, menentukan mode boot (Legacy vs UEFI)
+   │
+   ▼
+MBR  /  GPT                ← partition table (1.1.5), menunjuk partisi bootable/ESP
+   │
+   ▼
+VBR (Volume Boot Record)   ← boot code + BPB spesifik per-partisi (1.1.7)
+   │
+   ▼
+bootmgr / bootmgfw.efi     ← Windows Boot Manager, baca BCD (Boot Configuration Data)
+   │
+   ▼
+winload.exe / winload.efi  ← memuat Windows Kernel & driver boot-critical
+   │
+   ▼
+Windows Kernel (ntoskrnl.exe)
+```
+
+| Mode | Alur yang dipakai |
+|---|---|
+| **Legacy BIOS** | MBR → VBR → `bootmgr` → `winload.exe` |
+| **UEFI (modern)** | GPT + EFI System Partition (ESP) → `bootmgfw.efi` → `winload.efi` |
+
+> 💡 **Kenapa `BCD` penting:** file ini sebenarnya **registry hive tersendiri** (bisa dibuka `RegistryExplorer.exe` atau `bcdedit /store <path>`) yang menyimpan konfigurasi entry boot — relevan untuk deteksi dual-boot tidak sah atau modifikasi boot untuk persistence.
+
+---
+
+#### 1.1.9 Disk Signature / GUID
+
+**Pengertian & Fungsi:**
+Identitas unik disk dan partisi, tercatat dalam struktur partition table, dan sering dipakai ulang di berbagai artefak untuk korelasi antar-lokasi.
+
+| Skema | Identitas Disk | Identitas Partisi |
+|---|---|---|
+| MBR | **Disk Signature** (4 byte, offset `0x1B8`) | Tidak ada GUID native — hanya index partisi |
+| GPT | **Disk GUID** | **Partition GUID** (unik per partisi) |
+
+**Kenapa penting di DFIR** — nilai ini sering muncul lagi dan dipakai untuk korelasi artefak di:
+
+- **Registry** — `HKLM\SYSTEM\MountedDevices` menyimpan signature/GUID disk untuk memetakan drive letter ke disk fisik.
+- **BCD** — entry boot merujuk ke partisi lewat identifier berbasis GUID/signature.
+- **Mount Manager** — melacak device yang pernah di-mount, berbasis identitas disk ini.
+- **Volume Shadow Copy (VSS)** — snapshot terikat ke volume tertentu lewat identitas ini juga.
+
+> 💡 **Nilai forensik:** kalau ditemukan disk signature/GUID di satu artefak, bisa dicocokkan ke artefak lain untuk memastikan keduanya berasal dari disk fisik yang sama — sangat berguna saat disk sudah dipindah ke sistem lain atau cuma dianalisis lewat image. Konsepnya mirip **Volume Serial Number** di VBR (lihat 1.1.7) yang muncul lagi di LNK file/Jump List, hanya beda level (disk/partisi vs volume).
+
+---
+
+#### 1.1.10 Cara Analisa di FTK Imager / KAPE
 
 **FTK Imager (GUI):**
 1. `File > Add Evidence Item` → pilih Image File / Physical Drive.
@@ -185,7 +341,7 @@ mmls disk.dd
 
 ---
 
-#### 1.1.6 Unallocated Space & Slack Space
+#### 1.1.11 Unallocated Space & Slack Space
 
 Ini sering muncul di CTF, khususnya soal *"cari flag yang disembunyikan di area yang tidak terpakai"*.
 
@@ -223,7 +379,7 @@ scalpel disk.dd -o output_folder/
 
 ---
 
-#### 1.1.7 Full Path Tree — Disk & Partition Level
+#### 1.1.12 Full Path Tree — Disk & Partition Level
 
 Versi lengkap, mencakup skema **GPT/UEFI modern** dan **MBR/BIOS legacy**, plus seluruh NTFS system file di root volume yang sering dilewatkan.
 
@@ -253,7 +409,7 @@ Versi lengkap, mencakup skema **GPT/UEFI modern** dan **MBR/BIOS legacy**, plus 
 │   ├── $LogFile             ← Journal transaksi NTFS (undo/redo)
 │   ├── $Volume               ← Info volume (label, versi NTFS, dirty flag)
 │   ├── $AttrDef              ← Definisi tipe atribut NTFS
-│   ├── $Bitmap               ← Peta cluster terpakai/kosong (lihat 1.1.6)
+│   ├── $Bitmap               ← Peta cluster terpakai/kosong (lihat 1.1.11)
 │   ├── $Boot                 ← Salinan VBR + bootstrap code
 │   ├── $BadClus              ← Daftar bad sector/cluster
 │   ├── $Secure               ← ACL & security descriptor
@@ -263,7 +419,7 @@ Versi lengkap, mencakup skema **GPT/UEFI modern** dan **MBR/BIOS legacy**, plus 
 │   │   ├── $ObjId             ← Object ID tracking (link antar file/shortcut)
 │   │   ├── $Quota             ← Disk quota per user
 │   │   └── $Reparse           ← Reparse point index (symlink, junction, OneDrive placeholder)
-│   ├── $Recycle.Bin\          ← lihat 1.2.8
+│   ├── $Recycle.Bin\          ← lihat 1.2.11
 │   ├── System Volume Information\   ← Restore Point & Volume Shadow Copy metadata (butuh privilege SYSTEM)
 │   ├── pagefile.sys           ← Memory swap file
 │   ├── hiberfil.sys           ← Snapshot RAM saat hibernate
@@ -273,11 +429,11 @@ Versi lengkap, mencakup skema **GPT/UEFI modern** dan **MBR/BIOS legacy**, plus 
 │   ├── Documents and Settings ← Junction/symlink kompatibilitas ke Users\ (legacy XP path)
 │   ├── Recovery\              ← Metadata WinRE lokal (beda dengan partisi Recovery terpisah)
 │   ├── Windows\               ← lihat 1.2.2 – 1.2.3
-│   ├── Users\                 ← lihat 1.2.4
-│   ├── Program Files\         ← lihat 1.2.5
-│   ├── Program Files (x86)\  ← lihat 1.2.5
-│   ├── ProgramData\           ← lihat 1.2.6
-│   └── PerfLogs\              ← lihat 1.2.7
+│   ├── Users\                 ← lihat 1.2.5
+│   ├── Program Files\         ← lihat 1.2.8
+│   ├── Program Files (x86)\  ← lihat 1.2.8
+│   ├── ProgramData\           ← lihat 1.2.9
+│   └── PerfLogs\              ← lihat 1.2.10
 │
 ├── Partition 4 — Recovery Partition (WinRE)     [NTFS]
 │   └── \Recovery\WindowsRE\
@@ -311,7 +467,7 @@ Versi lengkap, mencakup skema **GPT/UEFI modern** dan **MBR/BIOS legacy**, plus 
 
 ---
 
-#### 1.1.8 Disk Image Format
+#### 1.1.13 Disk Image Format
 
 Karena targetmu HTB dan CTF, kamu akan sering ketemu format image yang berbeda-beda tergantung tool akuisisi yang dipakai penyelenggara.
 
@@ -354,7 +510,7 @@ mount -o ro,loop /mnt/ewf/ewf1 /mnt/evidence
 
 ---
 
-#### 1.1.9 Hidden Partition & Recovery Artefacts
+#### 1.1.14 Hidden Partition & Recovery Artefacts
 
 CTF suka menyembunyikan flag di partisi yang tidak langsung terlihat di Windows Explorer korban.
 
@@ -397,19 +553,19 @@ manage-bde -status C:
 C:\
 │
 ├── Windows\                  ← Inti sistem operasi (lihat 1.2.2 – 1.2.3)
-├── Users\                     ← Profil semua user (lihat 1.2.4)
-├── Program Files\             ← Aplikasi 64-bit (lihat 1.2.5)
-├── Program Files (x86)\      ← Aplikasi 32-bit (lihat 1.2.5)
-├── ProgramData\               ← Config aplikasi (hidden, per-mesin bukan per-user) (lihat 1.2.6)
-├── PerfLogs\                  ← Log performance counter (jarang dipakai, sering kosong) (lihat 1.2.7)
-├── $Recycle.Bin\              ← Recycle bin, per-user (berdasarkan SID) (lihat 1.2.8)
+├── Users\                     ← Profil semua user (lihat 1.2.5)
+├── Program Files\             ← Aplikasi 64-bit (lihat 1.2.8)
+├── Program Files (x86)\      ← Aplikasi 32-bit (lihat 1.2.8)
+├── ProgramData\  (Hidden)      ← Config aplikasi, per-mesin bukan per-user (lihat 1.2.9)
+├── PerfLogs\                  ← Log performance counter (jarang dipakai, sering kosong) (lihat 1.2.10)
+├── $Recycle.Bin\              ← Recycle bin, per-user (berdasarkan SID) (lihat 1.2.11)
 │
-│   ── Folder/file lain yang sering terlewat, dibahas detail di 1.2.10 ──
-├── System Volume Information\
-├── Recovery\
-├── Documents and Settings\
-├── Config.Msi\
-├── Windows.old\
+│   ── Folder/file lain yang sering terlewat, dibahas detail di 1.2.13 ──
+├── System Volume Information\  (Hidden, System)  ← VSS & Restore Point, CEK PERTAMA KALI
+├── Recovery\                     (Hidden)
+├── Documents and Settings\      (Junction)  ← symlink legacy ke Users\
+├── Config.Msi\                   (Hidden)
+├── Windows.old\                  (Hidden, kalau ada)
 ├── pagefile.sys
 ├── swapfile.sys
 ├── hiberfil.sys
@@ -417,6 +573,8 @@ C:\
 ├── bootmgr
 └── BOOTNXT
 ```
+
+> ⭐ **Jangan lewatkan `System Volume Information\`:** walau ditandai Hidden+System dan sekilas cuma "folder file lain yang terlewat", ini termasuk folder yang **paling awal dicek investigator berpengalaman** karena menyimpan Volume Shadow Copy — bisa membuka versi lama file yang sudah dimodifikasi/dihapus attacker (detail cara mount di 1.2.13).
 
 > 📌 **Prinsip dasar forensik direktori:** Setiap folder di atas punya "peran" berbeda dalam merekonstruksi cerita insiden — Windows\ untuk config & log sistem, Users\ untuk aktivitas manusia, ProgramData\ untuk aplikasi yang jalan sebagai service/background. Folder tambahan seperti `Windows.old\` dan `System Volume Information\` sering jadi "harta karun" karena menyimpan salinan data lama yang sudah tidak ada di lokasi normalnya.
 
@@ -503,7 +661,26 @@ Get-ChildItem "C:\Windows\System32\Tasks" -Recurse | Select-String "powershell",
 
 ---
 
-#### 1.2.4 Users\\
+#### 1.2.4 Arsitektur Windows: System32 vs SysWOW64
+
+**Pengertian & Fungsi:**
+Penamaan ini sering membingungkan pemula karena terkesan terbalik — `System32` justru berisi binary **64-bit** di Windows 64-bit modern.
+
+```
+64-bit EXE   →  Windows\System32\
+32-bit EXE   →  Windows\SysWOW64\
+```
+
+| Folder | Isi | Kenapa namanya begitu |
+|---|---|---|
+| `System32\` | Binary **native** sesuai arsitektur OS (64-bit di Windows 64-bit) | Nama historis dari era 32-bit, dipertahankan untuk kompatibilitas path |
+| `SysWOW64\` | Binary **32-bit** | "WOW64" = **W**indows **o**n **W**indows **64**-bit, lapisan kompatibilitas |
+
+> ⚠️ **Relevansi forensik:** saat analisis proses/malware, cek apakah binary berjalan dari `System32` atau `SysWOW64` untuk tahu arsitektur asli file tersebut — penting saat dikorelasikan dengan Prefetch (`.pf` filename kadang mencantumkan hash beda tergantung arsitektur) atau path lengkap di Event Log.
+
+---
+
+#### 1.2.5 Users\\
 
 **Pengertian & Fungsi:**
 Berisi **profil setiap user** yang pernah login ke mesin — ini adalah folder paling kaya untuk merekonstruksi **aktivitas manusia** (bukan sekadar sistem).
@@ -549,7 +726,61 @@ Users\
 
 ---
 
-#### 1.2.5 Program Files\\ & Program Files (x86)\\
+#### 1.2.6 AppData Tree
+
+**Pengertian & Fungsi:**
+`Users\<username>\AppData` adalah salah satu folder terpadat artefak — hampir semua data aplikasi user (browser, chat app, cache) ada di sini. Perlu dipecah lebih detail dari sekadar disebut sekali di 1.2.5.
+
+```
+AppData
+├── Local
+├── LocalLow
+└── Roaming
+```
+
+| Folder | Karakteristik |
+|---|---|
+| **Local** | Data spesifik mesin, **tidak** ikut roaming profile, sering berisi cache/data besar |
+| **LocalLow** | Mirip Local, tapi integrity level rendah — dipakai app sandboxed (mis. browser Protected Mode) |
+| **Roaming** | Data yang ikut berpindah kalau user profile roaming di domain environment |
+
+**Contoh lokasi artefak yang sering dicari:**
+
+| Aplikasi | Biasanya di |
+|---|---|
+| Chrome | `Local\Google\Chrome\User Data` |
+| Edge | `Local\Microsoft\Edge\User Data` |
+| Firefox | `Roaming\Mozilla\Firefox\Profiles` |
+| Discord | `Roaming\discord` |
+| Teams | `Local\Microsoft\Teams` / `Roaming\Microsoft\Teams` (tergantung versi) |
+| OneDrive | `Local\Microsoft\OneDrive` |
+| PowerShell history | `Roaming\Microsoft\Windows\PowerShell\PSReadLine` |
+| Recent items | `Roaming\Microsoft\Windows\Recent` |
+| Jump List | `Roaming\Microsoft\Windows\Recent\AutomaticDestinations` |
+
+> 💡 **Tip:** kalau bingung suatu artefak aplikasi ada di `Local` atau `Roaming`, aturan kasarnya — kalau datanya besar (cache, database lokal) biasanya `Local`; kalau datanya kecil dan "identitas user" (config, history) biasanya `Roaming`.
+
+---
+
+#### 1.2.7 Environment Variable
+
+**Pengertian & Fungsi:**
+Environment variable dipakai luas di registry, script, bahkan payload malware — jadi wajib dikenali sejak awal supaya path yang ditemukan di artefak bisa langsung "diterjemahkan".
+
+| Variable | Mengarah ke |
+|---|---|
+| `%SystemRoot%` | `C:\Windows` |
+| `%USERPROFILE%` | `C:\Users\<username>` |
+| `%APPDATA%` | `C:\Users\<username>\AppData\Roaming` |
+| `%LOCALAPPDATA%` | `C:\Users\<username>\AppData\Local` |
+| `%ProgramData%` | `C:\ProgramData` |
+| `%TEMP%` / `%TMP%` | `C:\Users\<username>\AppData\Local\Temp` |
+
+> ⚠️ **Kenapa penting:** path di registry key persistence (misalnya `Run`/`RunOnce`) dan konfigurasi malware hampir selalu memakai environment variable, bukan path absolut — jadi kalau menemukan `%APPDATA%\update.exe` di registry, itu artinya harus dicek di `Roaming`, bukan dicari literal foldernya.
+
+---
+
+#### 1.2.8 Program Files\\ & Program Files (x86)\\
 
 **Pengertian & Fungsi:**
 Lokasi instalasi aplikasi pihak ketiga (bukan bawaan `Windows\`).
@@ -577,7 +808,7 @@ HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\
 
 ---
 
-#### 1.2.6 ProgramData\\
+#### 1.2.9 ProgramData\\
 
 **Pengertian & Fungsi:**
 Folder **hidden** (secara default) yang menyimpan data konfigurasi aplikasi **per-mesin** (bukan per-user seperti `AppData`). Aplikasi yang jalan sebagai **service/background** biasanya nulis data di sini.
@@ -608,7 +839,7 @@ Get-ChildItem "C:\ProgramData\Microsoft\Windows Defender\Scans\History\Service" 
 
 ---
 
-#### 1.2.7 PerfLogs\\
+#### 1.2.10 PerfLogs\\
 
 **Pengertian & Fungsi:**
 Folder default untuk menyimpan log **Performance Monitor** (`perfmon`) — CPU, memory, disk counter dari waktu ke waktu.
@@ -631,7 +862,7 @@ relog perf_log.blg -f CSV -o output.csv
 
 ---
 
-#### 1.2.8 $Recycle.Bin\\
+#### 1.2.11 $Recycle.Bin\\
 
 **Pengertian & Fungsi:**
 Recycle Bin NTFS modern — setiap user (berdasarkan SID) punya subfolder sendiri. Ini adalah **tempat pertama** untuk cek file yang "dihapus" user (soft-delete, belum di-shift-delete).
@@ -661,7 +892,7 @@ $Recycle.Bin\
 
 ---
 
-#### 1.2.9 Tabel Prioritas Investigasi
+#### 1.2.12 Tabel Prioritas Investigasi
 
 Kalau baru mulai investigasi dan bingung folder mana yang dicek duluan, urutan prioritas umum (bisa disesuaikan konteks soal):
 
@@ -679,7 +910,7 @@ Kalau baru mulai investigasi dan bingung folder mana yang dicek duluan, urutan p
 
 ---
 
-#### 1.2.10 Root-Level Files & Folder yang Sering Terlewat
+#### 1.2.13 Root-Level Files & Folder yang Sering Terlewat
 
 Selain 7 folder utama di 1.2.1, ada file/folder lain langsung di `C:\` yang sering luput dicek padahal bisa jadi kunci jawaban.
 
@@ -712,22 +943,22 @@ strings pagefile.sys | findstr /i "password powershell -enc"
 
 ---
 
-#### 1.2.11 Full Path Tree — Seluruh C:\\ (Master Reference)
+#### 1.2.14 Full Path Tree — Seluruh C:\\ (Master Reference)
 
 Rangkuman satu tabel besar seluruh path yang sudah dibahas di Bab 1, dari root sampai ke sub-folder terdalam — dipakai sebagai referensi cepat/contekan saat investigasi.
 
 ```
 C:\
 │
-├── $MFT, $MFTMirr, $LogFile, $Volume, $Bitmap, $Boot, $Secure, $UpCase, $Extend\ (lihat 1.1.7)
-├── System Volume Information\                         ← VSS & Restore Point (1.2.10)
-├── Recovery\                                            ← Metadata WinRE lokal (1.2.10)
-├── Documents and Settings\                              ← Junction legacy → Users\ (1.2.10)
-├── Config.Msi\                                           ← Rollback data MSI installer (1.2.10)
-├── Windows.old\                                          ← Backup OS sebelum upgrade (1.2.10)
-├── pagefile.sys / swapfile.sys / hiberfil.sys           ← Memory-related files (1.2.10)
-├── DumpStack.log.tmp                                     ← Log crash dump (1.2.10)
-├── bootmgr / BOOTNXT                                     ← Boot manager & penanda next-boot (1.2.10)
+├── $MFT, $MFTMirr, $LogFile, $Volume, $Bitmap, $Boot, $Secure, $UpCase, $Extend\ (lihat 1.1.12)
+├── System Volume Information\                         ← VSS & Restore Point (1.2.13)
+├── Recovery\                                            ← Metadata WinRE lokal (1.2.13)
+├── Documents and Settings\                              ← Junction legacy → Users\ (1.2.13)
+├── Config.Msi\                                           ← Rollback data MSI installer (1.2.13)
+├── Windows.old\                                          ← Backup OS sebelum upgrade (1.2.13)
+├── pagefile.sys / swapfile.sys / hiberfil.sys           ← Memory-related files (1.2.13)
+├── DumpStack.log.tmp                                     ← Log crash dump (1.2.13)
+├── bootmgr / BOOTNXT                                     ← Boot manager & penanda next-boot (1.2.13)
 │
 ├── Windows\                                              (1.2.2)
 │   ├── System32\                                         (1.2.3)
@@ -753,7 +984,7 @@ C:\
 │   ├── WinSxS\
 │   └── Minidump\ + MEMORY.DMP                            ← Crash dump kernel (BSOD forensic)
 │
-├── Users\                                                (1.2.4)
+├── Users\                                                (1.2.5)
 │   ├── <username>\
 │   │   ├── NTUSER.DAT
 │   │   ├── AppData\Local\Microsoft\Windows\UsrClass.dat  ← ShellBags
@@ -768,19 +999,63 @@ C:\
 │   │   └── AppData\LocalLow\                               ← Data app low-integrity (browser sandbox)
 │   └── Public\
 │
-├── Program Files\ & Program Files (x86)\                 (1.2.5)
+├── Program Files\ & Program Files (x86)\                 (1.2.8)
 │
-├── ProgramData\                                           (1.2.6)
+├── ProgramData\                                           (1.2.9)
 │   ├── Microsoft\Windows Defender\Scans\History\
 │   ├── Microsoft\Windows\WER\
 │   └── Package Cache\
 │
-├── PerfLogs\                                               (1.2.7)
+├── PerfLogs\                                               (1.2.10)
 │
-└── $Recycle.Bin\                                           (1.2.8)
+└── $Recycle.Bin\                                           (1.2.11)
     └── <SID user>\
         ├── $I*.ext   ← metadata
         └── $R*.ext   ← isi file
 ```
 
 > 📝 Tabel/tree ini adalah rangkuman — untuk pengertian, fungsi, dan tools masing-masing path, kembali ke sub-bab yang tertera di setiap baris.
+
+---
+
+## 📍 Penutup Bab 1 — Windows Storage Architecture (Big Picture)
+
+Satu diagram besar yang merangkum seluruh isi Bab 1, sekaligus jadi "peta mental" penghubung ke Bab 2 (NTFS internals), Bab 3 (Registry), Bab 4 (Event Log), dan seterusnya.
+
+```
+Physical Disk
+│
+├── Sector (1.1.1)
+│
+├── Partition Table — MBR / GPT (1.1.5)
+│    └── Disk Signature / GUID (1.1.9)
+│
+├── Partition
+│   │
+│   ├── VBR (1.1.7)
+│   │
+│   ├── Filesystem — NTFS (1.1.3)
+│   │    │
+│   │    ├── $MFT
+│   │    ├── $Bitmap
+│   │    ├── $LogFile
+│   │    └── ... (lihat 1.1.12)
+│   │
+│   └── C:\  (1.2.1)
+│        │
+│        ├── Windows\ (1.2.2)
+│        │    ├── System32\ (1.2.3)
+│        │    └── SysWOW64\ (1.2.4)
+│        │
+│        ├── Users\ (1.2.5)
+│        │    └── <username>\AppData\ (1.2.6)
+│        │         ├── Local
+│        │         ├── LocalLow
+│        │         └── Roaming
+│        │
+│        ├── ProgramData\ (Hidden) (1.2.9)
+│        ├── System Volume Information\ (Hidden, System) (1.2.1 / 1.2.13)
+│        └── ...
+│
+└── Unallocated Space (1.1.11)
+```
