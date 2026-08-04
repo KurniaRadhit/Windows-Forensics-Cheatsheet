@@ -15,8 +15,6 @@
   - [2.3 Ringkasan Command & Tools Cheat Sheet](#23-ringkasan-command--tools-cheat-sheet)
   - [2.4 Mini Case Study — Workflow Analisa End-to-End](#24-mini-case-study--workflow-analisa-end-to-end)
 
-*(Bab 1 membahas Struktur Drive & Partisi serta Struktur Direktori Windows — lihat file terpisah `bab1.md`. Bab 3 dan seterusnya menyusul — akan fokus ke Registry hive detail, lalu EVTX & Event ID penting, dst.)*
-
 ---
 
 ## Bab 2 — File Sistem NTFS & Master File Table
@@ -366,5 +364,3 @@ lebih tua dari $FILE_NAME (SI vs FN mismatch), mengindikasikan penggunaan teknik
 > 💡 **Prinsip umum:** Jangan cuma andalkan satu sumber data. `$MFT` kasih "kondisi sekarang", `$UsnJrnl` kasih "riwayat perubahan", `$LogFile` kasih "bukti transaksi paling granular". Kombinasi ketiganya jauh lebih kuat daripada cuma baca satu-satu.
 
 ---
-
-> 📝 **Next (Bab 3 — direncanakan):** Registry hive detail (SYSTEM, SOFTWARE, SAM, SECURITY, NTUSER.DAT — key-key forensik penting seperti RunMRU, UserAssist, ShimCache/AmCache), lalu Bab 4: EVTX & Event ID penting untuk DFIR. Beri tahu aku kalau mau lanjut ke bab berikutnya atau ada bagian di Bab 2 ini yang mau diperdalam/dikoreksi dulu.
