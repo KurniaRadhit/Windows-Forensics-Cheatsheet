@@ -324,21 +324,7 @@ rifiuti INFO2 -o output.csv        # khusus format lama
 
 #### 5.2.6 Cross-Reference SID → Username
 
-Nama folder di `$Recycle.Bin\` cuma berupa SID, bukan username langsung. Cara resolve:
-
-```
-Registry: SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\<SID>\
-Value:    ProfileImagePath   ← path profile, mis. C:\Users\jdoe → username "jdoe"
-```
-
-```bash
-# Query cepat di live system
-reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\<SID>" /v ProfileImagePath
-
-# Di image mati: parsing hive SOFTWARE pakai RECmd, cari key ProfileList (Bab 3, §3.4.5 — User Profile List)
-```
-
-> 📖 **Cross-reference:** Key `ProfileList` ini sama persis dengan yang dibahas di Bab 3 §3.4.5 untuk keperluan lain (resolve SID di banyak konteks: Recycle Bin, event log, ShellBags, dll) — satu key registry, dipakai berulang di banyak jenis investigasi.
+Nama folder di `$Recycle.Bin\` cuma berupa SID, bukan username langsung — resolve pakai key `ProfileList` (`SOFTWARE\...\ProfileList\<SID>\ProfileImagePath`) yang sudah dibahas lengkap di **Bab 3 §3.4.5 — User Profile List** (termasuk command & cara baca di image mati). Key registry yang sama ini dipakai berulang di banyak konteks investigasi lain (event log, ShellBags, dst), jadi cukup satu rujukan saja.
 
 ---
 
