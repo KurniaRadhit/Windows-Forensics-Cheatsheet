@@ -48,7 +48,7 @@
   - [3.11 Tabel Prioritas — Execution vs Existence](#311-tabel-prioritas--execution-vs-existence)
   - [3.12 Mini Case Study — Rekonstruksi Aktivitas User dari Registry](#312-mini-case-study--rekonstruksi-aktivitas-user-dari-registry)
 
-*(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 4 dan seterusnya menyusul — akan fokus ke EVTX & Event ID penting untuk DFIR.)*
+*(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 4: EVTX & Event ID — `bab4.md`. Bab 5: User Activity Trail — `bab5.md`. Bab 6 — Browser Forensics menyusul.)*
 
 ---
 
