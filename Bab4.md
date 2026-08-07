@@ -66,7 +66,7 @@
     - [4.13.8 Tools Prefetch](#4138-tools-prefetch)
   - [4.14 Korelasi EVTX + Prefetch](#414-korelasi-evtx--prefetch)
 
-*(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 3: Windows Registry Forensics — `bab3.md`. Bab 5: User Activity Trail — `bab5.md`. Bab 6 — Browser Forensics menyusul.)*
+*(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 3: Windows Registry Forensics — `bab3.md`. Bab 5: User Activity Trail — `bab5.md`. Bab 6: Browser Forensics — `bab6.md`.)*
 
 ---
 
