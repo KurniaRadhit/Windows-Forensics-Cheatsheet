@@ -55,7 +55,7 @@
   - [5.8 Ringkasan Command & Tools Cheat Sheet](#58-ringkasan-command--tools-cheat-sheet)
   - [5.9 Mini Case Study — Rekonstruksi Aktivitas dari User Activity Trail](#59-mini-case-study--rekonstruksi-aktivitas-dari-user-activity-trail)
 
-*(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 3: Windows Registry Forensics — `bab3.md`. Bab 4: EVTX & Event ID Forensics — `bab4.md`. Bab 6 — Browser Forensics menyusul.)*
+*(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 3: Windows Registry Forensics — `bab3.md`. Bab 4: EVTX & Event ID Forensics — `bab4.md`. Bab 6: Browser Forensics — `bab6.md`.)*
 
 ---
 
