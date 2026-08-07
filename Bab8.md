@@ -920,7 +920,7 @@ Langkah 8 — Konfirmasi C2 aktif dari sisi network/host
 Kesimpulan yang bisa ditulis di laporan:
 "User mengunduh installer palsu bernama X pada waktu Y (browser history). Installer ini
 membungkus dropper AutoIt3 yang, setelah di-decompile, menunjukkan logic untuk men-drop
-payload stage-2 ke %AppData%\Local\Temp. Payload stage-2 memasang persistence via
+payload stage-2 ke %AppData%\Local\Temp.Payload stage-2 memasang persistence via
 Scheduled Task bernama Z, lalu melakukan koneksi keluar ke domain C2 hardcoded W
 (dikonfirmasi via Sysmon Event 3 & 22 pada waktu yang bersesuaian dengan eksekusi payload)."
 ```
