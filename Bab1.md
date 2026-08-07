@@ -463,7 +463,7 @@ Versi lengkap, mencakup skema **GPT/UEFI modern** dan **MBR/BIOS legacy**, plus 
     └── (isi sama persis dengan Partition 3 skema GPT di atas)
 ```
 
-> 💡 **File yang paling sering terlewat pemula:** `BCD` (dua-duanya — di ESP untuk UEFI atau di System Reserved untuk legacy) adalah **registry hive tersendiri**, bisa dibuka dengan `RegistryExplorer.exe` atau `bcdedit /store <path>` — berguna untuk lihat entry boot mencurigakan (misal boot ke OS lain / dual-boot yang tidak sah). `System Volume Information\` juga sering diabaikan padahal berisi Volume Shadow Copy yang bisa membuka file yang "sudah dihapus/terkunci" di title lama.
+> 💡 **File yang paling sering terlewat pemula:** `BCD` (dua-duanya — di ESP untuk UEFI atau di System Reserved untuk legacy) adalah registry hive tersendiri, sudah dibahas di **1.1.8**. `System Volume Information\` juga sering diabaikan padahal berisi Volume Shadow Copy yang bisa membuka file yang "sudah dihapus/terkunci" di titik waktu lama.
 
 ---
 
