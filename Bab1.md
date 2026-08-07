@@ -1018,6 +1018,42 @@ C:\
 
 ---
 
+## 📎 Lampiran Bab 1 — Master Acquisition & Export Workflow
+
+Ini adalah alur akuisisi/ekspor **generik** yang dipakai berulang kali di Bab 2, 3, dan 4 — daripada ditulis ulang tiap bab, semua bab lain cukup merujuk ke sini dan hanya menyebutkan **target file spesifik** mereka masing-masing.
+
+```
+1. Buka image (.E01/.dd/.raw/.vhd) di FTK Imager
+   File > Add Evidence Item > pilih tipe image
+
+2. Browse ke path target sesuai artefak yang mau diambil
+   (lihat tabel di bawah untuk tiap jenis artefak)
+
+3. Klik kanan file/folder target > Export Files...
+   Simpan ke folder evidence lokal, idealnya per-jenis artefak (mis. evidence\registry\, evidence\evtx\)
+
+4. Jalankan parser CLI/GUI sesuai jenis artefak (lihat kolom "Parser" di tabel)
+   Output umumnya CSV/JSON
+
+5. Buka hasil CSV di Timeline Explorer (Eric Zimmerman Tools)
+   Filter, sort, dan (kalau perlu) gabungkan beberapa CSV jadi satu timeline lintas-artefak
+```
+
+**Target ekspor per jenis artefak (ringkasan lintas-bab):**
+
+| Artefak | Path di Image | Parser | Detail di |
+|---|---|---|---|
+| `$MFT`, `$LogFile`, `$UsnJrnl` | Root volume / `$Extend\` | MFTECmd, LogFileParser | Bab 2, §2.2.7, §2.4 |
+| Hive registry utama | `Windows\System32\config\` (SYSTEM, SOFTWARE, SAM, SECURITY, DEFAULT + `RegBack\`) | RECmd, RegistryExplorer | Bab 3, §3.9 |
+| Hive per-user | `Users\<user>\NTUSER.DAT`, `Users\<user>\AppData\Local\Microsoft\Windows\UsrClass.dat` | RECmd, ShellBagsExplorer | Bab 3, §3.7, §3.9 |
+| `Amcache.hve` | `Windows\AppCompat\Programs\Amcache.hve` | AmcacheParser | Bab 3, §3.8 |
+| File EVTX | `Windows\System32\winevt\Logs\*.evtx` | EvtxECmd, Hayabusa/Chainsaw | Bab 4, §4.10 |
+| Prefetch | `Windows\Prefetch\*.pf` | PECmd | Bab 4, §4.13.8 |
+
+> 💡 **Kenapa dipisah dari bab masing-masing:** Prosesnya (export → parse → load ke Timeline Explorer) selalu sama persis, yang beda cuma path & tool. Menulis ulang langkah generik ini di tiap bab cuma nambah panjang tanpa nambah pengetahuan baru — cukup satu rujukan di sini.
+
+---
+
 ## 📍 Penutup Bab 1 — Windows Storage Architecture (Big Picture)
 
 Satu diagram besar yang merangkum seluruh isi Bab 1, sekaligus jadi "peta mental" penghubung ke Bab 2 (NTFS internals), Bab 3 (Registry), Bab 4 (Event Log), dan seterusnya.
