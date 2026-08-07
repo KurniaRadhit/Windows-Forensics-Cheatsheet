@@ -707,17 +707,16 @@ Amcache.hve\Root\
 | **reg query** (live system, CLI) | Query key/value tertentu dari command line | `reg query "HKLM\SYSTEM\CurrentControlSet\Services"` |
 | **Registry Viewer** (AccessData) | Alternatif GUI, sering dipaketkan bareng FTK | Buka file hive langsung |
 
-**Workflow umum offline analysis (image mati):**
-```bash
-# 1. Export semua hive dari image via FTK Imager (File > Export Files)
-#    Ambil: SYSTEM, SOFTWARE, SAM, SECURITY, DEFAULT, RegBack\*, Amcache.hve,
-#    dan tiap NTUSER.DAT + UsrClass.dat per user
+**Workflow offline analysis (image mati):**
 
-# 2. Parsing cepat semua key penting sekaligus pakai RECmd batch mode
+Ikuti alur akuisisi umum di **Bab 1, Lampiran — Master Acquisition & Export Workflow**. Target ekspor untuk registry: `SYSTEM`, `SOFTWARE`, `SAM`, `SECURITY`, `DEFAULT`, `RegBack\*`, `Amcache.hve`, dan tiap `NTUSER.DAT` + `UsrClass.dat` per user.
+
+Setelah file hive ada di folder evidence lokal, langkah spesifik registry:
+```bash
+# Parsing cepat semua key penting sekaligus pakai RECmd batch mode
 .\RECmd.exe -f "C:\evidence\SYSTEM" --bn BatchExamples\Kroll_Batch.reb --csv output\
 
-# 3. Buka hasil CSV di Timeline Explorer untuk filter & sort
-# 4. Cross-check temuan dengan hive spesifik pakai RegistryExplorer kalau butuh detail lebih
+# Cross-check temuan dengan hive spesifik pakai RegistryExplorer kalau butuh detail manual lebih
 ```
 
 ---
@@ -756,7 +755,7 @@ Salah satu kebingungan paling umum di forensik registry: **"artefak ini bukti pr
 |---|---|---|---|
 | **UserAssist** | Execution (via GUI) | `NTUSER.DAT` | **3.6.1** |
 | **BAM / DAM** | Execution | `SYSTEM` | **3.3.5** |
-| **Prefetch** | Execution (timestamp presisi) | *(bukan registry — Bab 1)* | Bab 1 |
+| **Prefetch** | Execution (timestamp presisi) | *(bukan registry — file `.pf` terpisah)* | Bab 4, **4.13** |
 | **ShimCache** | Existence | `SYSTEM` | **3.4.3** |
 | **Amcache** | Existence + Metadata (hash, compile time) | `Amcache.hve` | **3.8** |
 | **MUICache** | Existence (pernah muncul di GUI) | `NTUSER.DAT` / `UsrClass.dat` | **3.6.6** |
