@@ -34,9 +34,26 @@
     - [5.4.5 Korelasi dengan LNK Tertanam](#545-korelasi-dengan-lnk-tertanam)
     - [5.4.6 Tools Jump List](#546-tools-jump-list)
     - [5.4.7 Tip CTF — Jump List](#547-tip-ctf--jump-list)
-  - [5.5 Korelasi Artefak (Tabel Cepat)](#55-korelasi-artefak-tabel-cepat)
-  - [5.6 Ringkasan Command & Tools Cheat Sheet](#56-ringkasan-command--tools-cheat-sheet)
-  - [5.7 Mini Case Study — Rekonstruksi Aktivitas dari User Activity Trail](#57-mini-case-study--rekonstruksi-aktivitas-dari-user-activity-trail)
+  - [5.5 ActivitiesCache.db (Windows Timeline)](#55-activitiescachedb-windows-timeline)
+    - [5.5.1 Pengertian & Fungsi](#551-pengertian--fungsi-2)
+    - [5.5.2 Lokasi & Format Database](#552-lokasi--format-database)
+    - [5.5.3 Skema Tabel Penting](#553-skema-tabel-penting)
+    - [5.5.4 Field Forensik Kunci & Payload JSON](#554-field-forensik-kunci--payload-json)
+    - [5.5.5 WAL File & Recovery Data yang Belum Ter-checkpoint](#555-wal-file--recovery-data-yang-belum-ter-checkpoint)
+    - [5.5.6 Tools & Parsing](#556-tools--parsing)
+    - [5.5.7 Tip CTF — ActivitiesCache.db](#557-tip-ctf--activitiescachedb)
+  - [5.6 Thumbcache & Iconcache](#56-thumbcache--iconcache)
+    - [5.6.1 Pengertian & Fungsi](#561-pengertian--fungsi-3)
+    - [5.6.2 Lokasi & Penamaan File](#562-lokasi--penamaan-file)
+    - [5.6.3 Struktur CMMM Header](#563-struktur-cmmm-header)
+    - [5.6.4 Nilai Forensik — Gambar Bertahan Setelah Sumber Hilang](#564-nilai-forensik--gambar-bertahan-setelah-sumber-hilang)
+    - [5.6.5 Thumbs.db — Format Legacy per-Folder](#565-thumbsdb--format-legacy-per-folder)
+    - [5.6.6 Tools Thumbcache](#566-tools-thumbcache)
+    - [5.6.7 Tip CTF — Thumbcache](#567-tip-ctf--thumbcache)
+  - [5.7 Korelasi Artefak (Tabel Cepat)](#57-korelasi-artefak-tabel-cepat)
+    - [5.7.1 Matrix Aktivitas → Artefak](#571-matrix-aktivitas--artefak)
+  - [5.8 Ringkasan Command & Tools Cheat Sheet](#58-ringkasan-command--tools-cheat-sheet)
+  - [5.9 Mini Case Study — Rekonstruksi Aktivitas dari User Activity Trail](#59-mini-case-study--rekonstruksi-aktivitas-dari-user-activity-trail)
 
 *(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 3: Windows Registry Forensics — `bab3.md`. Bab 4: EVTX & Event ID Forensics — `bab4.md`. Bab 6 — Browser Forensics menyusul.)*
 
@@ -52,8 +69,10 @@ Kalau Bab 2–4 fokus ke artefak yang menceritakan "apa yang terjadi di sistem",
 | **Recycle Bin** | File yang dihapus user | Metadata ($I) + isi file ($R) — sampai di-*empty* atau ditimpa |
 | **LNK** | File source, atau drive/USB tempat file itu berada | Shortcut yang menyimpan metadata lengkap target-nya |
 | **Jump List** | Riwayat pemakaian aplikasi | Daftar file yang pernah dibuka per-aplikasi, dengan LNK tertanam |
+| **ActivitiesCache.db** | Konteks penuh sesi kerja user (aplikasi + dokumen + timeline) | Record aktivitas lintas-aplikasi dengan timestamp mulai/selesai, tersimpan di database SQLite |
+| **Thumbcache / Iconcache** | File gambar aslinya (sudah dihapus/dipindah) | Thumbnail cache — bukti visual bahwa gambar tersebut **pernah dilihat** user di Explorer |
 
-Keempatnya juga saling melengkapi dengan artefak yang sudah dibahas di Bab 3 — **ShellBags** (folder yang dibuka, §3.7) dan **RecentDocs** (file yang dibuka via Explorer, §3.6.2). Kalau ShellBags/RecentDocs jawab "folder/file apa", bab ini jawab lebih detail: "dari drive/mesin mana", "kapan persis", dan "apakah masih bisa direcover isinya".
+Enam artefak ini saling melengkapi dengan yang sudah dibahas di Bab 3 — **ShellBags** (folder yang dibuka, §3.7) dan **RecentDocs** (file yang dibuka via Explorer, §3.6.2). Kalau ShellBags/RecentDocs jawab "folder/file apa", bab ini jawab lebih detail: "dari drive/mesin mana", "kapan persis", "aplikasi apa yang dipakai", "apakah gambar itu pernah dilihat", dan "apakah masih bisa direcover isinya".
 
 ---
 
@@ -505,7 +524,160 @@ JLECmd otomatis: (1) resolve App ID ke nama aplikasi yang dikenali, (2) extract 
 
 ---
 
-### 5.5 Korelasi Artefak (Tabel Cepat)
+### 5.5 ActivitiesCache.db (Windows Timeline)
+
+#### 5.5.1 Pengertian & Fungsi
+
+**ActivitiesCache.db** adalah database di balik fitur **Windows Timeline** (diperkenalkan di Windows 10 April 2018 Update) dan mesin **Activity Feed** milik **Connected Devices Platform (CDP)** — komponen Windows yang juga dipakai fitur *Nearby Sharing* dan sinkronisasi lintas-perangkat. Meski UI Timeline sendiri sudah dihapus di build Windows 10/11 yang lebih baru, **proses pencatatan aktivitasnya tetap berjalan di background**, sehingga file ini masih relevan ditemukan di banyak sistem modern.
+
+Setiap kali user membuka aplikasi, dokumen, atau browsing tab tertentu, Windows mencatat aktivitas itu ke database ini — mencakup **kapan mulai**, **kapan berakhir**, **aplikasi apa**, dan **konten/dokumen apa** yang sedang dikerjakan.
+
+> 💡 **Kenapa artefak ini beda kelas dari LNK/Jump List:** LNK dan Jump List mencatat "file dibuka", tapi ActivitiesCache.db mencatat **sesi aktivitas** — termasuk aplikasi UWP/Store yang biasanya tidak meninggalkan Jump List, serta **tab browser** dan aktivitas yang tidak selalu menyentuh file di disk sama sekali.
+
+#### 5.5.2 Lokasi & Format Database
+
+```
+C:\Users\<user>\AppData\Local\ConnectedDevicesPlatform\
+└── L.<user>\                          ← Nama folder biasanya "L.<username>" (kadang berupa GUID)
+    ├── ActivitiesCache.db             ← Database utama (format SQLite)
+    ├── ActivitiesCache.db-wal         ← Write-Ahead Log (transaksi belum di-checkpoint, lihat 5.5.5)
+    └── ActivitiesCache.db-shm         ← Shared memory index untuk WAL
+```
+
+> ⚠️ **Nama folder bervariasi:** Sebagian sistem punya lebih dari satu subfolder di bawah `ConnectedDevicesPlatform\` (mis. kalau user login dengan akun Microsoft yang tersinkron di banyak perangkat). Selalu enumerasi **semua** subfolder-nya, jangan asumsikan hanya ada satu `ActivitiesCache.db`.
+
+`ActivitiesCache.db` adalah file **SQLite** biasa — bisa dibuka langsung dengan `sqlite3` CLI atau DB Browser for SQLite tanpa tool khusus, meski parser khusus (§5.5.6) tetap lebih praktis karena payload-nya berupa JSON bertingkat.
+
+#### 5.5.3 Skema Tabel Penting
+
+| Tabel | Isi |
+|---|---|
+| `Activity` | Record utama — satu baris per aktivitas (aplikasi dibuka, dokumen diedit, dst) |
+| `Activity_PackageId` | Mapping `ActivityId` ke identitas paket aplikasi (Package Family Name untuk UWP, atau path executable untuk Win32) |
+| `ActivityOperation` | Log operasi CRUD terhadap tiap activity — termasuk histori **update** dan **delete** sebuah activity, bukan cuma state akhirnya |
+
+> 💡 **`ActivityOperation` sering lebih kaya dari `Activity`:** Karena `Activity` biasanya cuma menyimpan versi **terakhir** dari sebuah record (hasil update bertumpuk), tabel `ActivityOperation` menyimpan histori tiap perubahan — kalau soal CTF minta *"urutan aktivitas dari waktu ke waktu"*, cek `ActivityOperation` dulu, bukan cuma `Activity`.
+
+#### 5.5.4 Field Forensik Kunci & Payload JSON
+
+| Field | Sumber Tabel | Nilai Forensik |
+|---|---|---|
+| `AppId` | `Activity_PackageId` | Identitas aplikasi (bisa multi-platform ID — Win32 path, UWP package, atau bahkan identitas app di perangkat lain yang tersinkron) |
+| `StartTime` / `EndTime` | `Activity` | Kapan sesi aktivitas dimulai & berakhir (Unix epoch atau FILETIME tergantung versi) |
+| `LastModifiedTime` / `LastModifiedOnClient` | `Activity` | Kapan record ini terakhir diupdate — **bisa beda** dari `StartTime`/`EndTime` asli |
+| `ActivityType` | `Activity` | Kategori aktivitas (numeric enum — mis. dijalankan, klipboard, dsb.) |
+| `Payload` | `Activity` | Blob **JSON** berisi detail lengkap: `appDisplayName`, `description`, `contentUri`/`path` dokumen yang dibuka, kadang termasuk **judul tab browser** atau **URL** |
+| `ClipboardPayload` | `Activity` | Kalau `ActivityType` terkait clipboard — bisa berisi **cuplikan teks yang pernah di-copy** |
+
+> ⚠️ **`Payload` adalah tambang emas, tapi harus di-parse dulu:** Kolom ini tersimpan sebagai **blob JSON mentah** (kadang di-compress) di dalam kolom database — tool umum seperti `sqlite3` akan menampilkannya sebagai teks panjang tidak terstruktur. Field `contentUri` di dalamnya sering berisi **path file lengkap** dokumen yang sedang dikerjakan, termasuk dari aplikasi UWP yang **tidak** meninggalkan jejak Jump List sama sekali (§5.4).
+
+#### 5.5.5 WAL File & Recovery Data yang Belum Ter-*checkpoint*
+
+SQLite memakai mode **Write-Ahead Log (WAL)** secara default untuk `ActivitiesCache.db` — artinya transaksi terbaru **tidak langsung** ditulis ke file `.db` utama, melainkan ke file `.db-wal` dulu, baru dipindahkan ("checkpoint") ke `.db` secara berkala.
+
+> 💡 **Implikasi forensik penting:** Kalau akuisisi image dilakukan **sebelum** checkpoint terjadi, aktivitas paling baru **hanya ada di file `.db-wal`**, tidak akan muncul kalau cuma membuka `ActivitiesCache.db` saja. Bahkan lebih penting lagi: baris yang **sudah dihapus** dari tabel `Activity` (mis. attacker coba bersihkan histori Timeline) kadang **masih tersisa** di `.db-wal` karena belum ter-overwrite. Selalu ikutkan file `-wal` dan `-shm` saat parsing, jangan cuma `.db`-nya.
+
+#### 5.5.6 Tools & Parsing
+
+```bash
+# WxTCmd (Eric Zimmerman) — parser khusus ActivitiesCache.db, auto-parse Payload JSON jadi kolom CSV
+.\WxTCmd.exe -f "C:\Users\<user>\AppData\Local\ConnectedDevicesPlatform\L.<user>\ActivitiesCache.db" --csv .
+
+# Query manual pakai sqlite3 CLI kalau butuh cek raw / tool tidak tersedia
+sqlite3 ActivitiesCache.db "SELECT AppId, StartTime, EndTime, Payload FROM Activity ORDER BY LastModifiedTime DESC;"
+
+# DB Browser for SQLite (GUI) — cocok untuk eksplorasi cepat termasuk buka file .db-wal
+```
+
+WxTCmd otomatis mem-parsing isi `Payload` JSON jadi kolom terpisah (`AppDisplayName`, `Description`, `Uri`/`ContentUri`, dst) sehingga tidak perlu decode JSON manual.
+
+#### 5.5.7 Tip CTF — ActivitiesCache.db
+
+> 💡 Kalau soal minta bukti aktivitas dari aplikasi **UWP/Store** (yang tidak punya Jump List) atau minta rekonstruksi **urutan lengkap sesi kerja user** (aplikasi apa, kapan, dokumen apa) — ActivitiesCache.db sering jadi satu-satunya artefak yang menjawab langsung, tanpa perlu gabung beberapa artefak lain. Jangan lupa cek `.db-wal` kalau `Activity` di file `.db` utama terlihat "kosong" atau tidak lengkap — itu indikasi data terbaru belum ter-checkpoint, atau malah sudah sengaja dihapus attacker dari tabel utama.
+
+---
+
+### 5.6 Thumbcache & Iconcache
+
+#### 5.6.1 Pengertian & Fungsi
+
+**Thumbcache** adalah mekanisme cache Windows Explorer untuk menyimpan **preview thumbnail** gambar, video, dan dokumen supaya tidak perlu di-render ulang tiap kali folder dibuka. **Iconcache** serupa, tapi untuk cache **icon aplikasi**. Keduanya menutup satu celah yang belum terjawab oleh artefak lain di bab ini: LNK & Jump List membuktikan "file **dibuka**", tapi tidak ada yang membuktikan "gambar **pernah dilihat** — walau cuma dari thumbnail preview di Explorer, tanpa file-nya benar-benar di-*double click*".
+
+> 💡 **Kenapa ini artefak favorit di CTF DFIR:** Karena thumbnail **disimpan terpisah** dari file aslinya (bukan pointer/link), thumbnail tetap bertahan meski file JPG sumbernya sudah dihapus, LNK-nya sudah hilang, dan Recycle Bin sudah di-*empty*. Sering jadi satu-satunya bukti visual yang tersisa dari sebuah gambar yang "seharusnya" sudah tidak ada jejaknya sama sekali.
+
+#### 5.6.2 Lokasi & Penamaan File
+
+```
+C:\Users\<user>\AppData\Local\Microsoft\Windows\Explorer\
+├── thumbcache_32.db      ← Thumbnail ukuran 32x32 px
+├── thumbcache_96.db      ← Thumbnail ukuran 96x96 px
+├── thumbcache_256.db     ← Thumbnail ukuran 256x256 px
+├── thumbcache_1024.db    ← Thumbnail ukuran 1024x1024 px
+├── thumbcache_sr.db      ← Screen-resolution-specific (untuk beberapa versi Windows)
+├── thumbcache_idx.db     ← Index yang menghubungkan entry ke ID unik
+├── iconcache_*.db        ← Cache icon aplikasi (struktur file mirip)
+└── IconCacheToDelete\    ← (Windows versi lebih baru) staging area icon cache lama sebelum dibersihkan
+```
+
+Satu sistem bisa punya **beberapa file `thumbcache_<size>.db`** sekaligus (ukuran berbeda-beda) — thumbnail yang sama bisa muncul di lebih dari satu file kalau pernah di-*preview* dalam beberapa mode tampilan Explorer (List, Large Icons, Extra Large Icons, dst).
+
+#### 5.6.3 Struktur CMMM Header
+
+Setiap file `thumbcache_*.db` diawali signature **`CMMM`** dan berisi rangkaian entry dengan struktur umum:
+
+```
+[thumbcache_*.db]
+├── Header (signature "CMMM", versi format)
+└── Entry (berulang)
+      ├── Signature entry ("CMMM" per-entry di beberapa versi)
+      ├── Entry Hash            ← ID unik 64-bit — dipakai cross-reference ke thumbcache_idx.db
+      ├── Data Size
+      ├── Data Checksum
+      └── Thumbnail Data (biasanya format JPEG/PNG/BMP mentah, bisa langsung di-extract jadi file gambar)
+```
+
+`thumbcache_idx.db` menyimpan **mapping** dari Entry Hash ke path/nama file asli — tapi mapping ini **tidak selalu lengkap**, apalagi kalau index sudah ter-rebuild ulang oleh Windows. Kalau mapping hilang, thumbnail tetap bisa di-*extract* sebagai gambar, hanya saja nama file aslinya perlu direkonstruksi dari sumber lain (mis. cocokkan visual gambar dengan konteks kasus).
+
+#### 5.6.4 Nilai Forensik — Gambar Bertahan Setelah Sumber Hilang
+
+| Kondisi File Sumber | Thumbcache |
+|---|---|
+| File JPG/PNG sudah **dihapus permanen** | Thumbnail **masih ada** — bisa di-*extract* sebagai bukti visual |
+| LNK ke file tersebut **tidak pernah dibuat** (user cuma preview lewat Explorer, tidak pernah "buka") | Thumbnail tetap tercatat, karena thumbnail dibuat saat **preview**, bukan saat "open" |
+| Recycle Bin **sudah di-*empty*** | Thumbnail tidak terpengaruh — hidup di cache terpisah |
+| File berasal dari **USB/network share yang sudah dicabut** | Thumbnail tetap tersimpan lokal di sistem yang pernah menampilkannya |
+
+> ⚠️ **Batasan penting:** Thumbnail membuktikan gambar **pernah ditampilkan/di-preview** di Explorer — bukan bukti gambar tersebut dibuka penuh, di-edit, atau dikirim ke mana pun. Jangan overclaim di laporan; kombinasikan dengan artefak lain (LNK, Jump List, ActivitiesCache §5.5) kalau butuh bukti "file dibuka secara aktif", bukan cuma "pernah terlihat thumbnail-nya".
+
+#### 5.6.5 Thumbs.db — Format Legacy per-Folder
+
+Sebelum thumbcache terpusat (mulai Vista), Windows XP memakai file **`Thumbs.db`** yang dibuat **per-folder** — tersimpan langsung di folder yang isinya pernah ditampilkan sebagai thumbnail (termasuk di **network share**, kalau folder tersebut sempat dibuka dari komputer berbasis XP/lawas).
+
+> 💡 **Masih relevan untuk network share lawas:** Kalau image berisi network share atau removable drive lama yang pernah diakses sistem XP, cek langsung apakah ada file `Thumbs.db` tersisa di folder-foldernya — ini bisa jadi bukti isi folder tersebut **pada waktu itu**, bahkan kalau isi folder sekarang sudah berubah total.
+
+#### 5.6.6 Tools Thumbcache
+
+| Tool | Fungsi | Catatan |
+|---|---|---|
+| **Thumbcache Viewer** (GUI, gratis) | Buka `thumbcache_*.db`, extract semua thumbnail jadi file gambar terpisah | Paling praktis untuk eksplorasi cepat & export massal |
+| **vinetto** (open-source, Python) | Parser khusus `Thumbs.db` format lama | Cross-platform, cocok untuk image XP/2003 |
+| **Eric Zimmerman's tools (belum ada parser dedicated)** | — | Untuk thumbcache modern, `Thumbcache Viewer` tetap jadi pilihan paling umum di komunitas DFIR |
+
+```bash
+# Contoh alur: buka thumbcache_1024.db pakai Thumbcache Viewer, lalu export all → JPG/PNG
+# (GUI-based, tidak ada command line resmi)
+
+# vinetto — extract thumbnail dari Thumbs.db legacy
+vinetto -o output_folder/ Thumbs.db
+```
+
+#### 5.6.7 Tip CTF — Thumbcache
+
+> 💡 Kalau soal CTF bilang *"buktikan attacker pernah melihat/mem-preview gambar sensitif ini, walau filenya sudah tidak ada di sistem"* — cek `thumbcache_1024.db` (ukuran terbesar biasanya paling jelas untuk identifikasi visual) dulu sebelum menyerah karena file & LNK-nya sudah hilang. Extract semua thumbnail, cocokkan secara visual, lalu cross-check waktu modifikasi file `thumbcache_*.db` itu sendiri (via `$MFT`, Bab 2 §2.1.2) untuk perkiraan kapan preview terjadi — thumbcache sendiri **tidak** menyimpan timestamp per-entry secara eksplisit.
+
+---
+
+### 5.7 Korelasi Artefak (Tabel Cepat)
 
 | Pertanyaan Umum CTF | Artefak Utama | Bagian |
 |---|---|---|
@@ -519,10 +691,34 @@ JLECmd otomatis: (1) resolve App ID ke nama aplikasi yang dikenali, (2) extract 
 | Program apa yang dipakai buka file apa, berurutan | Jump List — DestList + LNK tertanam | 5.4.3, 5.4.5 |
 | Folder yang dibuka (bukan file spesifik) dari drive yang sudah dicabut | ShellBags (Bab 3 §3.7) | Bab 3 |
 | File yang dibuka via Explorer (bukan dialog Open/Save) | RecentDocs (Bab 3 §3.6.2) | Bab 3 |
+| Rekonstruksi sesi kerja lengkap (aplikasi, dokumen, timeline) termasuk app UWP | ActivitiesCache.db — `Activity` + `Payload` JSON | 5.5.3, 5.5.4 |
+| Aktivitas terbaru/terhapus yang belum masuk histori utama | ActivitiesCache.db-wal (belum ter-*checkpoint*) | 5.5.5 |
+| Gambar pernah dilihat walau file & LNK-nya sudah hilang | Thumbcache (`thumbcache_*.db`) | 5.6.4 |
+| Isi folder network share/removable drive lawas (era XP) | Thumbs.db legacy | 5.6.5 |
+
+#### 5.7.1 Matrix Aktivitas → Artefak
+
+Tabel referensi cepat untuk memilih artefak yang tepat sesuai jenis aktivitas yang perlu dibuktikan — berguna terutama saat waktu pengerjaan CTF terbatas dan perlu langsung tahu "artefak mana yang harus dicek duluan":
+
+| Aktivitas | Artefak Utama | Artefak Pendukung |
+|---|---|---|
+| File dibuka dari USB | LNK (VolumeSerialNumber) | Jump List, ActivitiesCache |
+| File dibuka dari UNC/network share | LNK (LinkInfo — Net Share Info) | Jump List |
+| Folder dibuka dari USB/drive | ShellBags (Bab 3 §3.7) | — |
+| File dibuka via aplikasi tertentu (urutan MRU) | Jump List (DestList) | LNK tertanam |
+| File dibuka via Explorer langsung | RecentDocs (Bab 3 §3.6.2) | LNK auto-created |
+| File dihapus (masuk Recycle Bin) | Recycle Bin ($I/$R) | $UsnJrnl (Bab 2) |
+| File dihapus permanen (Shift+Del) | MFT/$I30 carving (Bab 2) | $UsnJrnl |
+| Versi lama/isi file sebelum dimodifikasi | VSS (mount & diff) | — |
+| Aktivitas app UWP/Store (tanpa Jump List) | ActivitiesCache.db (`Payload`) | — |
+| Tab browser / dokumen yang sedang dikerjakan (sesi) | ActivitiesCache.db (`Payload` — `contentUri`) | Browser history (Bab 6) |
+| Gambar pernah dilihat, file sumber sudah hilang | Thumbcache (`thumbcache_*.db`) | Iconcache (untuk app, bukan gambar) |
+| Teks pernah di-copy ke clipboard | ActivitiesCache.db (`ClipboardPayload`) | — |
+| Attacker hapus jejak recovery | VSS deleted + EVTX 4688 (Bab 4) | ActivitiesCache (cek delete di `ActivityOperation`) |
 
 ---
 
-### 5.6 Ringkasan Command & Tools Cheat Sheet
+### 5.8 Ringkasan Command & Tools Cheat Sheet
 
 | Artefak | Tool Utama | Command Contoh | Kegunaan |
 |---|---|---|---|
@@ -534,10 +730,14 @@ JLECmd otomatis: (1) resolve App ID ke nama aplikasi yang dikenali, (2) extract 
 | Recycle Bin (INFO2 + $I) | `rifiuti2` | `rifiuti-vista -o output.csv "C:\$Recycle.Bin\<SID>"` | Cross-platform, dukung format lama & baru |
 | LNK | `LECmd.exe` | `.\LECmd.exe -d "...\Recent" --csv .` | Parsing shortcut, termasuk TrackerDataBlock |
 | Jump List | `JLECmd.exe` | `.\JLECmd.exe -d "...\Recent" --csv .` | Parsing Jump List + resolve App ID |
+| ActivitiesCache.db | `WxTCmd.exe` | `.\WxTCmd.exe -f "...\ActivitiesCache.db" --csv .` | Parsing Windows Timeline + decode Payload JSON |
+| ActivitiesCache.db (manual/WAL) | `sqlite3` | `sqlite3 ActivitiesCache.db-wal ".dump"` | Cek transaksi belum ter-checkpoint / data terhapus |
+| Thumbcache | `Thumbcache Viewer` | — (GUI) | Extract thumbnail jadi file gambar untuk review visual |
+| Thumbs.db (legacy) | `vinetto` | `vinetto -o output/ Thumbs.db` | Extract thumbnail dari format XP/2003 |
 
 ---
 
-### 5.7 Mini Case Study — Rekonstruksi Aktivitas dari User Activity Trail
+### 5.9 Mini Case Study — Rekonstruksi Aktivitas dari User Activity Trail
 
 Skenario: *"Buktikan attacker membuka file sensitif dari network share, menyalinnya secara lokal, menghapus salinan lokal setelah selesai, lalu mencoba menutup jejak dengan menghapus shadow copy."*
 
@@ -582,6 +782,6 @@ shadow copy sebelumnya masih tersisa (kemungkinan gagal terhapus atau di luar re
 yang berhasil dipakai untuk memverifikasi kondisi $Recycle.Bin sebelum penghapusan tersebut."
 ```
 
-> 💡 **Prinsip umum:** Keempat artefak di bab ini paling kuat saat **saling melengkapi satu sama lain** — LNK/Jump List membuktikan "file dibuka", Recycle Bin membuktikan "file dihapus", VSS membuktikan "kondisi sebelum dihapus/dimodifikasi". Kombinasikan juga dengan ShellBags & RecentDocs (Bab 3) serta `$MFT`/`$UsnJrnl` (Bab 2) untuk timeline yang benar-benar utuh — satu artefak tunggal di bab ini jarang cukup untuk membuktikan keseluruhan alur kejadian.
+> 💡 **Prinsip umum:** Keenam artefak di bab ini paling kuat saat **saling melengkapi satu sama lain** — LNK/Jump List membuktikan "file dibuka", Recycle Bin membuktikan "file dihapus", VSS membuktikan "kondisi sebelum dihapus/dimodifikasi", ActivitiesCache.db membuktikan "sesi aktivitas & aplikasi yang dipakai" (termasuk app UWP yang tidak tercatat di Jump List), dan Thumbcache membuktikan "gambar pernah dilihat" meski file sumbernya sudah tidak berjejak sama sekali. Kombinasikan juga dengan ShellBags & RecentDocs (Bab 3) serta `$MFT`/`$UsnJrnl` (Bab 2) untuk timeline yang benar-benar utuh — satu artefak tunggal di bab ini jarang cukup untuk membuktikan keseluruhan alur kejadian.
 
 ---
