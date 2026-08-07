@@ -603,7 +603,7 @@ NTUSER.DAT\Software\Microsoft\Internet Explorer\TypedURLs\
 
 **Nilai forensik:** Menyimpan URL yang **diketik manual** oleh user di address bar Internet Explorer (bukan hasil klik link atau autocomplete dari history biasa).
 
-> ⚠️ **Konteks browser lama:** Ini artefak khas Internet Explorer/Edge Legacy. Untuk browser modern (Edge Chromium, Chrome, Firefox), history/typed-URL tersimpan di **database SQLite** milik masing-masing browser (di luar cakupan bab registry ini), bukan di registry. Tapi key ini **masih sering muncul** di image Windows lama atau VM lab yang belum pernah pakai browser modern — jangan diskip kalau image target ternyata masih pakai IE/Edge Legacy.
+> ⚠️ **Konteks browser lama:** Ini artefak khas Internet Explorer/Edge Legacy. Untuk browser modern (Edge Chromium, Chrome, Firefox), history/typed-URL tersimpan di **database SQLite** milik masing-masing browser, dibahas lengkap di **Bab 6 — Browser Forensics**, bukan di registry. Tapi key ini **masih sering muncul** di image Windows lama atau VM lab yang belum pernah pakai browser modern — jangan diskip kalau image target ternyata masih pakai IE/Edge Legacy.
 
 #### 3.6.11 Terminal Server / RDP History
 
@@ -654,6 +654,8 @@ UsrClass.dat\Local Settings\Software\Microsoft\Windows\Shell\BagMRU\
 ```
 
 > 💡 **Tip CTF:** Kalau soal minta *"buktikan attacker pernah akses folder di USB drive yang sekarang sudah dicabut"* — ShellBags + USB history (**3.3.3**) adalah kombinasi jawaban paling kuat.
+
+> 📖 **Pelengkap:** ShellBags mencatat folder yang dibuka, tapi kalau butuh **file spesifik** apa yang dibuka (bukan cuma folder), cross-check ke LNK files & Jump List — dibahas di **Bab 5 — User Activity Trail**.
 
 ---
 
