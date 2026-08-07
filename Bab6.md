@@ -713,7 +713,7 @@ Kesimpulan yang bisa ditulis di laporan:
 manual), ditemukan entry Cache dengan timestamp X yang cocok dengan halaman phishing landing
 page (URL Y). File attachment Z ditemukan di $MFT dengan FullPath 'Downloads\invoice.exe' pada
 waktu X+2 menit. LNK auto-created di folder Recent\ mengonfirmasi file tersebut dibuka pada
-waktu X+3 menit, dikuatkan oleh entry Prefetch INVOICE.EXE-XXXXXXXX.pf dengan RunCount=1 pada
+waktu X+3 menit, dikuatkan oleh entry Prefetch INVOICE.EXE-XXXXXXX.pf dengan RunCount=1 pada
 waktu yang sama. Sysmon Event ID 1 mencatat proses anak cmd.exe/powershell.exe dijalankan oleh
 invoice.exe tak lama setelahnya, mengindikasikan payload aktif dieksekusi."
 ```
