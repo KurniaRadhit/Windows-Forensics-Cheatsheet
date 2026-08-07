@@ -705,24 +705,23 @@ Users\
 
 **Cara Analisa & Tools:**
 
-| Sub-area | Yang dicari | Tool |
+| Sub-area | Yang dicari | Detail lanjutan |
 |---|---|---|
-| `NTUSER.DAT` | Aktivitas user: UserAssist, RecentDocs, typed paths, RunMRU | `RegistryExplorer.exe`, `RECmd.exe` |
+| `NTUSER.DAT` | Aktivitas user: UserAssist, RecentDocs, typed paths, RunMRU | `RegistryExplorer.exe`, `RECmd.exe` — Bab 3 |
 | `AppData\Local\Temp\` | File yang di-drop attacker/malware, seringkali payload stage 2 | Hash check, `strings`, VirusTotal |
-| `AppData\Roaming\...\Recent\` | LNK files & Jump Lists — file apa yang dibuka, dari drive mana | `LECmd.exe` (LNK), `JLECmd.exe` (Jump List) |
-| `PSReadLine\ConsoleHost_history.txt` | Command PowerShell yang pernah diketik user | Text editor |
-| `UsrClass.dat` | Shell bag (folder yang pernah dibuka via Explorer!) | `RegistryExplorer.exe`, ShellBag parser |
+| `AppData\Roaming\...\Recent\` | LNK files & Jump Lists — file apa yang dibuka, dari drive mana | **Bab 5** |
+| `PSReadLine\ConsoleHost_history.txt` | Command PowerShell yang pernah diketik user | Text editor — korelasi ke Bab 4 §4.5 (4104) |
+| `UsrClass.dat` | Shell bag (folder yang pernah dibuka via Explorer!) | `RegistryExplorer.exe`, ShellBag parser — Bab 3 §3.7 |
 | `Downloads\` / `Desktop\` | File yang sengaja disimpan user, kadang bukti langsung | Manual review, hash |
 
 ```bash
 # Contoh: parsing NTUSER.DAT untuk melihat semua key relevan
 .\RECmd.exe -f "C:\Users\<user>\NTUSER.DAT" --csv .
-
-# Contoh: parsing semua LNK file di folder Recent
-.\LECmd.exe -d "C:\Users\<user>\AppData\Roaming\Microsoft\Windows\Recent" --csv .
 ```
 
-> 💡 **Tip CTF:** Kalau soal minta "file apa yang dibuka user sebelum insiden" atau "user pernah akses drive apa", cek urutan: **NTUSER.DAT (RecentDocs) → LNK files → Jump Lists → ShellBags (UsrClass.dat)**. Keempatnya saling melengkapi dan kadang salah satu "selamat" walau yang lain dihapus attacker.
+> 📖 **Detail lengkap LNK & Jump List** (struktur binary, ShellItemID, volume serial, MAC address, cara parsing dengan `LECmd.exe`/`JLECmd.exe`) dibahas mendalam di **Bab 5 — User Activity Trail**. Bagian ini cuma peta lokasi & gambaran umum.
+
+> 💡 **Tip CTF:** Kalau soal minta "file apa yang dibuka user sebelum insiden" atau "user pernah akses drive apa", cek urutan: **NTUSER.DAT (RecentDocs) → LNK files → Jump Lists → ShellBags (UsrClass.dat)**. Keempatnya saling melengkapi dan kadang salah satu "selamat" walau yang lain dihapus attacker — detail LNK/Jump List di Bab 5, ShellBags di Bab 3 §3.7.
 
 ---
 
@@ -757,6 +756,8 @@ AppData
 | PowerShell history | `Roaming\Microsoft\Windows\PowerShell\PSReadLine` |
 | Recent items | `Roaming\Microsoft\Windows\Recent` |
 | Jump List | `Roaming\Microsoft\Windows\Recent\AutomaticDestinations` |
+
+> 📖 **Detail analisa:** Tabel di atas cuma peta lokasi cepat. Analisa mendalam Browser (History/Cookies/Cache/Login Data via SQLite) ada di **Bab 6 — Browser Forensics**; analisa mendalam LNK & Jump List ada di **Bab 5 — User Activity Trail**.
 
 > 💡 **Tip:** kalau bingung suatu artefak aplikasi ada di `Local` atau `Roaming`, aturan kasarnya — kalau datanya besar (cache, database lokal) biasanya `Local`; kalau datanya kecil dan "identitas user" (config, history) biasanya `Roaming`.
 
@@ -890,6 +891,8 @@ $Recycle.Bin\
 
 > 💡 **Tip CTF:** SID di nama folder bisa langsung dicocokkan ke username lewat registry `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\<SID>` → key `ProfileImagePath`. Jadi walau nama folder cuma SID, kamu tetap bisa tahu itu recycle bin milik user siapa.
 
+> 📖 **Edge case lanjutan** (format lama `INFO2` di Windows XP/7, recovery file yang di-*permanently delete* lewat Shift+Del) dibahas di **Bab 5 — User Activity Trail**, disandingkan dengan VSS/LNK/Jump List sebagai satu keluarga "artefak residu aktivitas".
+
 ---
 
 #### 1.2.12 Tabel Prioritas Investigasi
@@ -916,7 +919,7 @@ Selain 7 folder utama di 1.2.1, ada file/folder lain langsung di `C:\` yang seri
 
 | File/Folder | Pengertian & Fungsi | Nilai Forensik |
 |---|---|---|
-| `System Volume Information\` | Menyimpan Volume Shadow Copy (VSS) & Restore Point | Bisa dipakai buka **versi lama file** yang sudah dimodifikasi/dihapus attacker — akses butuh privilege SYSTEM. Tool: `vssadmin list shadows`, mount shadow copy via `mklink` symbolic link |
+| `System Volume Information\` | Menyimpan Volume Shadow Copy (VSS) & Restore Point | Bisa dipakai buka **versi lama file** yang sudah dimodifikasi/dihapus attacker — akses butuh privilege SYSTEM. Detail cara mount, enumerasi, & diffing antar snapshot ada di **Bab 5** |
 | `Recovery\` | Metadata WinRE lokal (beda dari partisi Recovery terpisah) | Kadang berisi log recovery/reset yang menunjukkan sistem pernah di-reset (bisa jadi anti-forensik attacker) |
 | `Documents and Settings\` | Junction/symlink kompatibilitas legacy ke `Users\` (peninggalan era Windows XP) | Kalau di-`dir`, terlihat seperti folder biasa tapi sebenarnya reparse point — jangan bingung saat listing filesystem |
 | `Config.Msi\` | Folder sementara untuk proses install/uninstall MSI (rollback data) | Kadang menyimpan sisa file `.rbf`/`.rbs` dari instalasi software yang di-uninstall — bisa jadi bukti software pernah terpasang |
@@ -929,12 +932,6 @@ Selain 7 folder utama di 1.2.1, ada file/folder lain langsung di `C:\` yang seri
 | `BOOTNXT` | Penanda konfigurasi next-boot (dipakai WinRE/recovery) | Jarang jadi fokus, tapi relevan untuk timeline reboot/recovery |
 
 ```bash
-# Contoh: list semua Volume Shadow Copy yang tersedia
-vssadmin list shadows
-
-# Contoh: mount shadow copy tertentu supaya bisa dibrowse
-mklink /d C:\shadow_copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\
-
 # Contoh: cari string mencurigakan (password, command) di pagefile
 strings pagefile.sys | findstr /i "password powershell -enc"
 ```
@@ -1049,6 +1046,8 @@ Ini adalah alur akuisisi/ekspor **generik** yang dipakai berulang kali di Bab 2,
 | `Amcache.hve` | `Windows\AppCompat\Programs\Amcache.hve` | AmcacheParser | Bab 3, §3.8 |
 | File EVTX | `Windows\System32\winevt\Logs\*.evtx` | EvtxECmd, Hayabusa/Chainsaw | Bab 4, §4.10 |
 | Prefetch | `Windows\Prefetch\*.pf` | PECmd | Bab 4, §4.13.8 |
+| VSS, Recycle Bin, LNK, Jump List | `System Volume Information\`, `$Recycle.Bin\`, `AppData\Roaming\...\Recent\` | RBCmd, LECmd, JLECmd | Bab 5 *(mendatang)* |
+| Browser (History, Cookies, Cache, Login Data) | `AppData\Local\Google\Chrome\...`, `AppData\Roaming\Mozilla\Firefox\...`, dll | Hindsight, DB Browser for SQLite | Bab 6 *(mendatang)* |
 
 > 💡 **Kenapa dipisah dari bab masing-masing:** Prosesnya (export → parse → load ke Timeline Explorer) selalu sama persis, yang beda cuma path & tool. Menulis ulang langkah generik ini di tiap bab cuma nambah panjang tanpa nambah pengetahuan baru — cukup satu rujukan di sini.
 
