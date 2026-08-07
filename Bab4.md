@@ -569,24 +569,21 @@ Log lebih lengkap dari Security 4698 — mencatat siklus hidup task (register, s
 | **Hayabusa** | Alternatif hunting tool berbasis Sigma, output timeline HTML/CSV siap pakai, sangat populer di CTF/DFIR kompetisi | `hayabusa csv-timeline -d evidence\ -o timeline.csv` |
 | **DeepBlueCLI** | PowerShell script, deteksi pola serangan umum dari Security/PowerShell log | `.\DeepBlue.ps1 -log security` |
 
-**Workflow umum offline analysis (image mati):**
-```bash
-# 1. Export semua .evtx dari image via FTK Imager, terutama:
-#    Security, System, Application, Windows PowerShell,
-#    *PowerShell%4Operational, *Sysmon%4Operational (kalau ada),
-#    *TerminalServices-*%4Operational, *TaskScheduler%4Operational
+**Workflow offline analysis (image mati):**
 
-# 2. Parsing massal semua EVTX sekaligus (satu folder) ke CSV terstandar
+Ikuti alur akuisisi umum di **Bab 1, Lampiran — Master Acquisition & Export Workflow**. Target ekspor untuk EVTX: `Security`, `System`, `Application`, `Windows PowerShell`, `*PowerShell%4Operational`, `*Sysmon%4Operational` (kalau ada), `*TerminalServices-*%4Operational`, `*TaskScheduler%4Operational`.
+
+Setelah file `.evtx` ada di folder evidence lokal, langkah spesifik EVTX:
+```bash
+# Parsing massal semua EVTX sekaligus (satu folder) ke CSV terstandar
 .\EvtxECmd.exe -d "C:\evidence\Logs" --csv output\ --csvf all_events.csv
 
-# 3. Hunting cepat pakai Sigma rules untuk temukan anomali tanpa baca manual satu-satu
+# Hunting cepat pakai Sigma rules untuk temukan anomali tanpa baca manual satu-satu
 hayabusa csv-timeline -d "C:\evidence\Logs" -o hunt_timeline.csv
 
-# 4. Buka all_events.csv & hunt_timeline.csv di Timeline Explorer
-#    Filter per Event ID penting (4624/4688/7045/4104/1102 dll), sort by TimeCreated
-
-# 5. Gabungkan dengan timeline Prefetch/$MFT (Bab 1-2) & Registry (Bab 3)
-#    untuk timeline korelasi lintas-artefak
+# Buka all_events.csv & hunt_timeline.csv di Timeline Explorer, filter per Event ID
+# penting (4624/4688/7045/4104/1102 dll), sort by TimeCreated, lalu gabungkan dengan
+# timeline Prefetch/$MFT (Bab 1-2) & Registry (Bab 3) untuk korelasi lintas-artefak
 ```
 
 ---
