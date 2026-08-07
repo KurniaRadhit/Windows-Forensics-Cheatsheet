@@ -1047,7 +1047,7 @@ Ini adalah alur akuisisi/ekspor **generik** yang dipakai berulang kali di Bab 2,
 | File EVTX | `Windows\System32\winevt\Logs\*.evtx` | EvtxECmd, Hayabusa/Chainsaw | Bab 4, §4.10 |
 | Prefetch | `Windows\Prefetch\*.pf` | PECmd | Bab 4, §4.13.8 |
 | VSS, Recycle Bin, LNK, Jump List | `System Volume Information\`, `$Recycle.Bin\`, `AppData\Roaming\...\Recent\` | RBCmd, LECmd, JLECmd | Bab 5 |
-| Browser (History, Cookies, Cache, Login Data) | `AppData\Local\Google\Chrome\...`, `AppData\Roaming\Mozilla\Firefox\...`, dll | Hindsight, DB Browser for SQLite | Bab 6 *(mendatang)* |
+| Browser (History, Cookies, Cache, Login Data) | `AppData\Local\Google\Chrome\...`, `AppData\Roaming\Mozilla\Firefox\...`, dll | Hindsight, DB Browser for SQLite | Bab 6 |
 
 > 💡 **Kenapa dipisah dari bab masing-masing:** Prosesnya (export → parse → load ke Timeline Explorer) selalu sama persis, yang beda cuma path & tool. Menulis ulang langkah generik ini di tiap bab cuma nambah panjang tanpa nambah pengetahuan baru — cukup satu rujukan di sini.
 
