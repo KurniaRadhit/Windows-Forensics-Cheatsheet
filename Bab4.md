@@ -16,6 +16,7 @@
     - [4.3.2 4634 / 4647 — Logoff](#432-4634--4647--logoff)
     - [4.3.3 4672 — Special Privileges Assigned](#433-4672--special-privileges-assigned)
     - [4.3.4 4688 — Process Creation](#434-4688--process-creation)
+      - [4.3.4.1 PID, PPID & Process Tree Forensics](#4341-pid-ppid--process-tree-forensics)
     - [4.3.5 Manajemen Akun User (4720/4722/4724/4725/4726)](#435-manajemen-akun-user-4720472247244725726)
     - [4.3.6 Manajemen Group Membership (4728/4732/4756)](#436-manajemen-group-membership-472847324756)
     - [4.3.7 Kerberos — 4768/4769/4770/4771](#437-kerberos--4768476947704771)
@@ -23,11 +24,13 @@
     - [4.3.9 Scheduled Task (4698/4699/4700/4701/4702)](#439-scheduled-task-4698469947004701702)
     - [4.3.10 5140/5145 — Network Share Access](#4310-51405145--network-share-access)
     - [4.3.11 1102 — Audit Log Cleared](#4311-1102--audit-log-cleared)
+    - [4.3.12 Event ID Tambahan — Credential, Privilege & Account Management](#4312-event-id-tambahan--credential-privilege--account-management)
   - [4.4 System.evtx — Log Sistem & Service](#44-systemevtx--log-sistem--service)
     - [4.4.1 7045 / 7034 / 7036 — Service Installed/Crashed/State Change](#441-7045--7034--7036--service-installedcrashedstate-change)
     - [4.4.2 6005/6006/6008/6013 — Startup/Shutdown](#442-6005600660086013--startupshutdown)
     - [4.4.3 41 — Kernel-Power (Unexpected Reboot)](#443-41--kernel-power-unexpected-reboot)
     - [4.4.4 104 — Log File Cleared (System)](#444-104--log-file-cleared-system)
+    - [4.4.5 7040 — Service Start Type Changed](#445-7040--service-start-type-changed)
   - [4.5 PowerShell Logs — Operational & Analytic](#45-powershell-logs--operational--analytic)
     - [4.5.1 400/403 — Engine State](#451-400403--engine-state)
     - [4.5.2 4103 — Module Logging](#452-4103--module-logging)
@@ -46,11 +49,22 @@
     - [4.7.2 WMI-Activity Operational](#472-wmi-activity-operational)
     - [4.7.3 TaskScheduler Operational](#473-taskscheduler-operational)
     - [4.7.4 Windows Defender Operational](#474-windows-defender-operational)
+    - [4.7.5 5156/5158/7040 — Windows Filtering Platform & Firewall](#475-51565158--windows-filtering-platform--firewall)
   - [4.8 Timestamp & TimeZone di EVTX](#48-timestamp--timezone-di-evtx)
   - [4.9 Anti-Forensic: Log Dihapus/Dimatikan](#49-anti-forensic-log-dihapusdimatikan)
   - [4.10 Tools & Cara Analisa EVTX](#410-tools--cara-analisa-evtx)
   - [4.11 Tabel Korelasi Cepat — Event ID Penting](#411-tabel-korelasi-cepat--event-id-penting)
   - [4.12 Mini Case Study — Rekonstruksi Lateral Movement dari EVTX](#412-mini-case-study--rekonstruksi-lateral-movement-dari-evtx)
+  - [4.13 Prefetch Forensics](#413-prefetch-forensics)
+    - [4.13.1 Lokasi Prefetch](#4131-lokasi-prefetch)
+    - [4.13.2 Informasi yang Disimpan](#4132-informasi-yang-disimpan)
+    - [4.13.3 Struktur Nama File](#4133-struktur-nama-file)
+    - [4.13.4 Versi Prefetch per Windows](#4134-versi-prefetch-per-windows)
+    - [4.13.5 Last Run Times (8 Timestamp Terakhir)](#4135-last-run-times-8-timestamp-terakhir)
+    - [4.13.6 Run Count](#4136-run-count)
+    - [4.13.7 Prefetch Disabled](#4137-prefetch-disabled)
+    - [4.13.8 Tools Prefetch](#4138-tools-prefetch)
+  - [4.14 Korelasi EVTX + Prefetch](#414-korelasi-evtx--prefetch)
 
 *(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 3: Windows Registry Forensics — `bab3.md`. Bab 5 dan seterusnya menyusul.)*
 
@@ -235,6 +249,77 @@ Setara "Prefetch tapi live & real-time" — butuh **Audit Process Creation** + *
 
 > 💡 Tanpa policy command-line auditing aktif, 4688 tetap catat proses apa dijalankan (existence + parent-child), tapi **tidak** catat argumen — jadi cek dulu apakah field `CommandLine` kosong sebelum menyimpulkan tidak ada payload berbahaya.
 
+##### 4.3.4.1 PID, PPID & Process Tree Forensics
+
+Field paling dasar dari 4688 (dan Sysmon Event ID 1) adalah **PID**/**PPID** — tapi keduanya sering diremehkan padahal jadi kunci utama buat merekonstruksi **siapa memanggil siapa** dalam sebuah rantai eksekusi.
+
+| Field | Arti |
+|---|---|
+| **PID** | Process ID — identitas proses yang sedang berjalan saat itu |
+| **PPID** | Parent Process ID — PID dari proses yang men-*spawn* proses ini |
+| **Process Tree** | Rangkaian hubungan parent-child antar proses, dari proses paling awal (mis. `explorer.exe`) sampai proses paling akhir (payload) |
+| **Creation Time** | Waktu proses dibuat (`TimeCreated` di 4688 / `UtcTime` di Sysmon 1) |
+| **Exit Time** | Waktu proses berakhir — kalau ada (Sysmon Event ID 5 "Process Terminated", atau dihitung dari korelasi Prefetch/handle table di memory) |
+
+**Contoh process tree:**
+
+```
+explorer.exe (PID 3100)
+└── cmd.exe (PID 4000)
+    └── powershell.exe (PID 4500)
+        └── certutil.exe (PID 4700)
+```
+
+Dibaca dari atas ke bawah: `explorer.exe` (shell normal user) meng-*spawn* `cmd.exe`, yang meng-*spawn* `powershell.exe`, yang akhirnya meng-*spawn* `certutil.exe` — pola ini khas **living-off-the-land** (LOLBin) dipakai buat download/decode payload.
+
+**Parent aneh sering jadi IOC (Indicator of Compromise).** Proses office/produktivitas yang seharusnya cuma buka dokumen, tapi malah jadi *parent* dari shell/scripting engine, adalah salah satu sinyal paling kuat di DFIR:
+
+| Parent → Child mencurigakan | Indikasi |
+|---|---|
+| `winword.exe` → `powershell.exe` | Macro malicious di dokumen Word |
+| `excel.exe` → `cmd.exe` | Macro malicious di spreadsheet Excel |
+| `outlook.exe` → `rundll32.exe` | Attachment/exploit lewat email client |
+| `services.exe` → `cmd.exe` | Service dipakai buat spawn shell (persistence via service) |
+| `wsmprovhost.exe` → `powershell.exe` | Eksekusi remote lewat WinRM/PSRemoting |
+| `wmiprvse.exe` → `cmd.exe` | Eksekusi lewat WMI (lateral movement, mis. `wmiexec.py`) |
+
+> 💡 Pola-pola di atas **sangat sering muncul di HTB Sherlock** — kalau soal minta "bagaimana attacker mendapatkan initial execution", cek dulu process tree-nya sebelum baca command line satu-satu.
+
+**Tabel korelasi ketersediaan PID/PPID per artefak:**
+
+| Artefak | PID | PPID / ParentProcessName |
+|---|---|---|
+| Security 4688 | ✅ | ❌ (hanya `ParentProcessName`, **tanpa** PPID numerik langsung — harus di-*link* manual via nama & waktu) |
+| Sysmon Event ID 1 | ✅ | ✅ |
+| EDR Logs | ✅ | ✅ |
+| Memory Dump (Volatility `pstree`/`psscan`) | ✅ | ✅ |
+
+**Process GUID (Sysmon) — lebih reliable dari PID.** Sysmon punya field yang jauh lebih penting daripada PID mentah:
+
+- `ProcessGuid`
+- `ParentProcessGuid`
+
+Alasannya: **PID bisa di-*reuse*** setelah proses lama exit atau setelah reboot — dua proses berbeda di waktu berbeda bisa punya PID yang sama persis, sehingga korelasi murni berdasarkan PID bisa salah nyambung. `ProcessGuid` unik secara global dan tidak pernah bertabrakan.
+
+```
+Sysmon Event ID 1 — Process Create
+ProcessGuid={5f3a1c02-...}
+ParentProcessGuid={5f3a1b90-...}
+ProcessId=4500
+ParentProcessId=4000
+```
+
+`ProcessGuid` sangat berguna saat menghubungkan event-event Sysmon lain yang berasal dari proses yang sama:
+
+```
+Event 1  → Process Create        (proses dibuat)
+Event 3  → Network Connection    (proses ini konek keluar)
+Event 22 → DNS Query             (proses ini resolve domain)
+Event 11 → File Create           (proses ini bikin file)
+```
+
+Semua event tersebut punya field `ProcessGuid` yang identik kalau berasal dari proses yang sama — jadi meskipun PID di-*reuse* proses lain setelahnya, `ProcessGuid` tetap memastikan korelasi network/DNS/file-create yang tepat mengarah ke proses attacker yang benar, bukan proses lain yang kebetulan dapat PID sama.
+
 #### 4.3.5 Manajemen Akun User (4720/4722/4724/4725/4726)
 
 | Event ID | Arti |
@@ -295,6 +380,21 @@ Berguna untuk bukti **file exfiltration** lewat SMB atau eksekusi payload dari s
 
 **Salah satu event paling penting di semua Security.evtx** — muncul saat seseorang menjalankan `wevtutil cl Security` atau klik "Clear Log" di Event Viewer. Event 1102 **selalu tercatat** karena ditulis *setelah* proses clear selesai — attacker tidak bisa menghapus jejak clear-nya sendiri lewat cara ini. Field `SubjectUserName` menunjukkan siapa yang melakukan clear.
 
+#### 4.3.12 Event ID Tambahan — Credential, Privilege & Account Management
+
+Selain event utama di atas, beberapa Event ID berikut sering krusial buat melengkapi timeline — khususnya untuk soal yang fokus ke **credential abuse**, **privilege escalation**, dan **account manipulation**.
+
+| Event ID | Nama | Kegunaan Forensik |
+|---|---|---|
+| **4648** | Logon attempt using explicit credentials | Muncul saat sebuah proses login pakai kredensial yang **berbeda** dari user yang sedang aktif (mis. `runas`, `psexec -u`, script yang hardcode password) — indikasi kuat **credential reuse/lateral movement** |
+| **4673** | Sensitive privilege use | Dicatat saat sebuah privilege sensitif (mis. `SeDebugPrivilege`, `SeTakeOwnershipPrivilege`) benar-benar **dipakai**, bukan cuma di-*assign* (beda dengan 4672) — sering muncul saat tool credential dumping mengakses `lsass.exe` |
+| **4697** | Service installed (Security log) | Versi Security log dari 7045 (4.4.1) — muncul kalau **Audit System Events**/**Audit Application Generated** aktif; berguna sebagai cross-check kalau System.evtx sudah di-*clear* tapi Security.evtx masih utuh |
+| **4719** | System audit policy changed | Attacker mengubah audit policy (mis. mematikan audit untuk kategori tertentu) sebelum beraksi — kalau muncul tanpa alasan admin yang jelas, ini indikasi **anti-forensic** setara dengan mematikan logging |
+| **4723** | Password change attempt (by the user) | User mencoba ganti password akun sendiri — beda dengan 4724 (reset paksa oleh admin) |
+| **4738** | User account changed | Atribut akun diubah (mis. `UserAccountControl`, `logon hours`, `SID History`) — bisa indikasi **modifikasi akun untuk persistence** (mis. set "password never expires") |
+| **4740** | Account locked out | Akun ter-*lockout* karena terlalu banyak gagal login — kombinasi banyak 4740 dari IP/host sama = indikasi **brute force/password spraying** yang agresif |
+| **4767** | Account unlocked | Siapa yang meng-*unlock* akun yang tadinya lockout — cek apakah dilakukan oleh admin sah atau bukan |
+
 ---
 
 ### 4.4 System.evtx — Log Sistem & Service
@@ -323,6 +423,15 @@ Provider `Microsoft-Windows-Kernel-Power`, Event ID **41** — sistem restart ta
 #### 4.4.4 104 — Log File Cleared (System)
 
 Sama konsepnya dengan **1102** di Security log, tapi untuk log `System`/log lain secara umum — dicatat oleh provider `Microsoft-Windows-Eventlog` setiap kali sebuah `.evtx` di-clear.
+
+#### 4.4.5 7040 — Service Start Type Changed
+
+Dicatat saat **Start Type** sebuah service diubah (mis. dari `Disabled`/`Manual` jadi `Automatic`, atau sebaliknya). Sering dipakai attacker untuk dua skenario berlawanan:
+
+- **Mengaktifkan service** yang tadinya nonaktif untuk **persistence** (mis. service legit yang jarang dipakai diubah jadi `Automatic` supaya payload jalan tiap boot).
+- **Mematikan service keamanan** (mis. Windows Defender related service diubah ke `Disabled`) sebagai bagian dari **defense evasion**.
+
+Field `param1` = nama service, `param3`/`param4` = start type lama & baru — cocokkan dengan `7045` (4.4.1) untuk tahu apakah service tersebut memang baru diinstall atau service lama yang cuma diubah konfigurasinya.
 
 ---
 
@@ -414,6 +523,16 @@ Log lebih lengkap dari Security 4698 — mencatat siklus hidup task (register, s
 | **1117** | Aksi terhadap threat berhasil dilakukan (quarantine/remove) |
 | **5001/5010/5012** | Real-time protection / scan dimatikan (indikasi attacker **menonaktifkan AV**) |
 
+#### 4.7.5 5156/5158/7040 — Windows Filtering Platform & Firewall
+
+| Event ID | Log | Arti |
+|---|---|---|
+| **5156** | Security | **Windows Filtering Platform** mengizinkan sebuah koneksi — mencatat `Source Address/Port`, `Destination Address/Port`, `Application Name` (proses yang bikin koneksi). Butuh **Audit Filtering Platform Connection** aktif (default-nya sering nonaktif karena volumenya besar) |
+| **5158** | Security | **Bind port** — proses melakukan *bind* ke sebuah port lokal (biasanya sebelum listen), berguna untuk deteksi **reverse shell/backdoor listener** yang baru dibuka |
+| **7040** | System | Service Start Type Changed — lihat **4.4.5** |
+
+> 💡 Kombinasi **5156** (proses + IP + port tujuan) sering lebih detail dibanding Sysmon Event ID 3 kalau Sysmon tidak ter-install, tapi volumenya jauh lebih besar sehingga jarang di-*enable* di lingkungan produksi — kalau ada di evidence, biasanya artinya audit policy memang sudah disiapkan sejak awal (atau attacker sedang diobservasi lewat honeypot/lab CTF).
+
 ---
 
 ### 4.8 Timestamp & TimeZone di EVTX
@@ -494,6 +613,8 @@ hayabusa csv-timeline -d "C:\evidence\Logs" -o hunt_timeline.csv
 | Apakah sistem di-restart paksa buat hilangkan jejak? | System | **41 (Kernel-Power)** (**4.4.3**) |
 | Apakah AV dimatikan sebelum serangan? | Defender Operational | **5001/5010/5012** (**4.7.4**) |
 | Apakah ada lateral movement lewat WMI? | WMI-Activity Operational | **5857/5860/5861** (**4.7.2**) |
+| Apakah executable ini benar-benar dieksekusi (bukan cuma dibuat)? | Prefetch | **`.pf` file** (**4.13**, korelasi di **4.14**) |
+| Siapa parent process sebenarnya, tanpa terkecoh PID reuse? | Sysmon | **ProcessGuid/ParentProcessGuid** (**4.3.4.1**) |
 
 ---
 
@@ -538,5 +659,147 @@ sehingga tetap dapat direkonstruksi."
 ```
 
 > 💡 **Prinsip umum:** EVTX paling kuat saat **dikorelasikan lintas log** (Security + Sysmon + PowerShell + System) dan lintas bab (Prefetch/$MFT dari Bab 1-2, Registry dari Bab 3) — satu log tunggal jarang cukup untuk membuktikan keseluruhan kill chain, tapi kombinasinya membentuk timeline yang sulit dibantah.
+
+---
+
+### 4.13 Prefetch Forensics
+
+Kalau EVTX jawab "**apa yang terjadi**" dan Registry (Bab 3) jawab "**apa yang pernah ada**", Prefetch jawab pertanyaan yang lebih spesifik: "**executable ini benar-benar dieksekusi atau tidak — dan berapa kali?**" Prefetch adalah fitur **Windows performance optimization** (bukan fitur security), tapi efek sampingnya jadi salah satu artefak eksekusi paling reliable di DFIR karena **tidak butuh audit policy apa pun untuk aktif** — beda dengan 4688 yang butuh GPO diaktifkan dulu.
+
+#### 4.13.1 Lokasi Prefetch
+
+```
+C:\Windows\Prefetch\
+```
+
+Contoh isi folder:
+
+```
+POWERSHELL.EXE-A12B34CD.pf
+CMD.EXE-12345678.pf
+MIMIKATZ.EXE-ABCDEF01.pf
+```
+
+#### 4.13.2 Informasi yang Disimpan
+
+| Artefak | Ada di Prefetch? |
+|---|---|
+| Nama executable | ✅ |
+| Run Count | ✅ |
+| Last Run Time | ✅ |
+| DLL yang di-*load* | ✅ |
+| Volume Serial Number | ✅ |
+| Path file lengkap | Sebagian (tersimpan di daftar file referenced, bukan selalu jadi field utama) |
+
+#### 4.13.3 Struktur Nama File
+
+```
+APPNAME.EXE-HASH.pf
+```
+
+Contoh:
+
+```
+POWERSHELL.EXE-7E3D5A6C.pf
+```
+
+`HASH` di sini adalah hash 8-karakter dari **path lokasi executable** (bukan hash isi file) — dipakai untuk membedakan executable dengan nama sama yang dijalankan dari **path berbeda**. Contoh kasus di CTF: `POWERSHELL.EXE-7E3D5A6C.pf` (dari `System32`) vs `POWERSHELL.EXE-9F1A2B3C.pf` (dari folder attacker mis. `C:\Users\Public\`) — dua file `.pf` terpisah untuk binary yang "sama" tapi lokasi beda, sering jadi bukti attacker menaruh copy `powershell.exe` di path non-standar untuk menghindari deteksi berbasis path.
+
+#### 4.13.4 Versi Prefetch per Windows
+
+| Versi Windows | Prefetch Version |
+|---|---|
+| XP | 17 |
+| Vista/7 | 23 |
+| 8/8.1 | 26 |
+| 10/11 | 30 |
+
+> 💡 Versi Prefetch ini sering muncul di challenge yang minta **parsing manual** (baca header `.pf` langsung tanpa tool) — nomor versi menentukan *offset* struktur biner yang harus dibaca (lokasi field run count, timestamp array, dll berbeda per versi).
+
+#### 4.13.5 Last Run Times (8 Timestamp Terakhir)
+
+Mulai **Windows 8**, satu file `.pf` menyimpan **8 timestamp run terakhir** (bukan cuma 1 seperti versi lama):
+
+```
+Run #1  ← paling lama
+Run #2
+Run #3
+...
+Run #8  ← paling baru (Last Run Time)
+```
+
+Ini **sangat penting** untuk membuktikan sebuah executable dijalankan **berkali-kali** dalam rentang waktu tertentu — misalnya attacker menjalankan tool yang sama berulang saat *brute forcing* atau *retry* exploit, delapan timestamp ini bisa merekonstruksi pola eksekusinya tanpa perlu bergantung sepenuhnya pada EVTX.
+
+#### 4.13.6 Run Count
+
+Contoh perbandingan:
+
+| Executable | Run Count |
+|---|---|
+| `MIMIKATZ.EXE` | 1 |
+| `CHROME.EXE` | 352 |
+
+Run Count yang **sangat rendah** (1–3) pada tool yang tidak lazim (`mimikatz.exe`, `psexec.exe`, `rubeus.exe`) adalah sinyal kuat **tool attacker** yang baru dijalankan sekali-dua kali untuk aksi spesifik — sangat berbeda polanya dari aplikasi harian user (browser, Office) yang Run Count-nya bisa ratusan. Kombinasi **Run Count rendah + nama file mencurigakan + path non-standar** adalah salah satu cara tercepat memisahkan noise dari IOC sungguhan di folder Prefetch yang isinya bisa ratusan file.
+
+#### 4.13.7 Prefetch Disabled
+
+Prefetcher bisa dimatikan lewat registry — kalau ditemukan dimatikan padahal sistem seharusnya aktif memakainya, ini bisa jadi indikasi **anti-forensic**.
+
+```
+Registry: HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters
+Value: EnablePrefetcher
+```
+
+| Nilai | Arti |
+|---|---|
+| **0** | Disabled |
+| **1** | Application prefetching only |
+| **2** | Boot prefetching only |
+| **3** | Both (Application + Boot) — default umum |
+
+> 💡 Kalau nilai ini ditemukan `0` di image yang harusnya masih pakai HDD (bukan SSD — Windows kadang auto-disable Prefetch di SSD sejak Windows 8+ karena tidak perlu), dan folder `Prefetch` mendadak kosong/isinya jauh lebih sedikit dari ekspektasi, ini indikasi attacker **mematikan Prefetch supaya tidak ada bukti eksekusi**.
+
+#### 4.13.8 Tools Prefetch
+
+| Tool | Kegunaan |
+|---|---|
+| **PECmd.exe** (Eric Zimmerman) | Parser utama — convert `.pf` ke CSV/JSON lengkap dengan run times & loaded files |
+| **WinPrefetchView** (NirSoft) | GUI ringan, cocok untuk *quick look* tanpa command line |
+| **KAPE** | Kolektor — bisa target `Prefetch` module langsung dari live/mounted image lalu otomatis panggil PECmd |
+| **Zimmerman Parser (suite)** | Bundel tools termasuk PECmd, biasanya dipaketkan bareng EvtxECmd/RegistryExplorer |
+| **Python manual parsing** | Untuk baca struktur biner `.pf` langsung (mis. pakai library `libscca`/`scca` atau parsing manual sesuai versi di 4.13.4) — biasa dipakai di challenge yang sengaja tidak kasih akses tool GUI |
+
+Contoh command:
+
+```bash
+PECmd.exe -d Prefetch
+```
+
+Perintah di atas memproses **seluruh folder** `Prefetch` sekaligus dan mengeluarkan CSV berisi semua `.pf` yang berhasil di-*parse*, termasuk Run Count dan array 8 last-run-time per file.
+
+---
+
+### 4.14 Korelasi EVTX + Prefetch
+
+Di Windows DFIR, **EVTX dan Prefetch hampir selalu dipakai bersama** — keduanya saling menutupi kelemahan masing-masing:
+
+- **EVTX (4688/Sysmon 1)** membuktikan proses **dibuat** (existence + command line + parent process), tapi butuh audit policy aktif dan bisa hilang kalau log di-*clear*.
+- **Prefetch** membuktikan executable **benar-benar dieksekusi** (bukan cuma dibuat lalu langsung mati/crash), tetap ada meski logging tidak diaktifkan, tapi **tidak** menyimpan command line/argumen.
+
+Kombinasi keduanya menutup celah masing-masing dan jadi salah satu pola korelasi paling sering dipakai di CTF/HTB Sherlock:
+
+```
+4688: powershell.exe          2025-01-01 10:00:00   ← EVTX: proses dibuat, command line lengkap
+Prefetch: POWERSHELL.EXE       Last Run: 2025-01-01 10:00:01   Run Count: 1   ← Prefetch: eksekusi terkonfirmasi
+```
+
+**Kesimpulan dari korelasi di atas:**
+
+- **Event log** mengatakan proses **dibuat** pada waktu tertentu, lengkap dengan command line (kalau auditing aktif).
+- **Prefetch** membuktikan executable **benar-benar dieksekusi**, dengan selisih waktu Last Run yang biasanya cuma beberapa detik setelah `TimeCreated` di EVTX — selisih ini wajar (waktu proses selesai load sebelum Prefetch mencatat run selesai).
+- Kalau **4688 ada tapi entry Prefetch untuk executable tersebut tidak ada sama sekali**, kemungkinan: (a) Prefetch dimatikan (4.13.7), (b) proses gagal load/di-*block* sebelum benar-benar jalan, atau (c) file `.pf`-nya sudah dihapus manual sebagai anti-forensic.
+- Kalau **Prefetch ada tapi 4688 tidak ada**, kemungkinan: audit policy command-line belum aktif saat itu, atau Security log sudah di-*clear*/*wrap* — di sinilah Prefetch jadi **satu-satunya bukti eksekusi yang tersisa**.
+
+> 💡 **Workflow praktis:** Saat menemukan proses mencurigakan di 4688/Sysmon 1, langsung cross-check ke folder `Prefetch` untuk file `.pf` dengan nama yang sama. Cocokkan `Last Run Time` (4.13.5) dengan `TimeCreated` di EVTX — kalau keduanya konsisten, itu bukti eksekusi ganda (dual-source) yang jauh lebih kuat di laporan dibanding cuma mengandalkan satu artefak saja. Gabungkan juga dengan `ProcessGuid` (4.3.4.1) kalau Sysmon tersedia, supaya proses yang sama bisa ditelusuri lintas Event ID 1/3/11/22 sekaligus dikonfirmasi lewat Prefetch.
 
 ---
