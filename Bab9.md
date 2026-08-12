@@ -40,9 +40,21 @@
     - [9.9.2 Statistical Gap Detection](#992-statistical-gap-detection)
     - [9.9.3 Correlation Matrix — Artefak yang Seharusnya Ada](#993-correlation-matrix--artefak-yang-seharusnya-ada)
     - [9.9.4 VSS/Backup sebagai Cross-Validation Gap](#994-vssbackup-sebagai-cross-validation-gap)
-  - [9.10 Tabel Master — Anti-Forensic Technique vs Detection Method](#910-tabel-master--anti-forensic-technique-vs-detection-method)
-  - [9.11 Ringkasan Command & Tools Cheat Sheet](#911-ringkasan-command--tools-cheat-sheet)
-  - [9.12 Mini Case Study — Full Timeline Reconstruction dengan Gap Detection](#912-mini-case-study--full-timeline-reconstruction-dengan-gap-detection)
+  - [9.10 Timestamp Normalization — Referensi Master](#910-timestamp-normalization--referensi-master)
+    - [9.10.1 Tabel Epoch & Formula Konversi Lengkap](#9101-tabel-epoch--formula-konversi-lengkap)
+    - [9.10.2 Precision Mismatch Antar Artefak](#9102-precision-mismatch-antar-artefak)
+    - [9.10.3 Script Python — Universal Timestamp Converter](#9103-script-python--universal-timestamp-converter)
+  - [9.11 Master Correlation Matrix — Event Type vs Artefak Lintas-Bab](#911-master-correlation-matrix--event-type-vs-artefak-lintas-bab)
+  - [9.12 Evidence Survivability Matrix](#912-evidence-survivability-matrix)
+  - [9.13 Tabel Master — Anti-Forensic Technique vs Detection Method](#913-tabel-master--anti-forensic-technique-vs-detection-method)
+  - [9.14 Investigation Playbooks](#914-investigation-playbooks)
+    - [9.14.1 Playbook — Suspected Malware Execution](#9141-playbook--suspected-malware-execution)
+    - [9.14.2 Playbook — Data Exfiltration via USB/Removable Media](#9142-playbook--data-exfiltration-via-usbremovable-media)
+    - [9.14.3 Playbook — Ransomware Incident](#9143-playbook--ransomware-incident)
+    - [9.14.4 Playbook — Suspected Anti-Forensics / Insider Threat](#9144-playbook--suspected-anti-forensics--insider-threat)
+    - [9.14.5 Playbook — Lateral Movement Cross-Host](#9145-playbook--lateral-movement-cross-host)
+  - [9.15 Ringkasan Command & Tools Cheat Sheet](#915-ringkasan-command--tools-cheat-sheet)
+  - [9.16 Mini Case Study — Full Timeline Reconstruction dengan Gap Detection](#916-mini-case-study--full-timeline-reconstruction-dengan-gap-detection)
 
 *(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 3: Windows Registry Forensics — `bab3.md`. Bab 4: EVTX & Event ID Forensics — `bab4.md`. Bab 5: User Activity Trail — `bab5.md`. Bab 6: Browser Forensics — `bab6.md`. Bab 7: Memory Forensics — `bab7.md`. Bab 8: Malware & Persistence Analysis — `bab8.md`.)*
 
@@ -50,7 +62,7 @@
 
 ## Bab 9 — Timeline Correlation & Anti-Forensics
 
-> 💡 **Posisi Bab 9 di seri ini:** Bab 1-8 fokus per-artefak — di mana bukti tersimpan, apa strukturnya, dan bagaimana anti-forensic sederhana terhadap artefak itu dideteksi (sudah dibahas lokal di tiap bab). Bab 9 **tidak mengulang** semua itu. Bab 9 menjahit semuanya jadi satu timeline utuh lintas-artefak (§9.1-9.5), lalu naik satu level ke teknik anti-forensik yang menyerang **fondasi filesystem/journal itu sendiri** — bukan satu artefak spesifik (§9.6-9.9). Kalau kamu belum familiar dengan istilah SI/FN, $LogFile, $UsnJrnl, VSS, atau Event ID auth dasar, kembali dulu ke Bab 2-5 sebelum lanjut ke sini.
+> 💡 **Posisi Bab 9 di seri ini:** Bab 1-8 fokus per-artefak — di mana bukti tersimpan, apa strukturnya, dan bagaimana anti-forensic sederhana terhadap artefak itu dideteksi (sudah dibahas lokal di tiap bab). Bab 9 **tidak mengulang** semua itu. Bab 9 menjahit semuanya jadi satu timeline utuh lintas-artefak (§9.1-9.5), lalu naik satu level ke teknik anti-forensik yang menyerang **fondasi filesystem/journal itu sendiri** — bukan satu artefak spesifik (§9.6-9.9). Bagian penutup (§9.10-9.14) adalah lapisan referensi & operasional: konversi timestamp lintas-format (§9.10), matrix korelasi & survivability lengkap (§9.11-9.12), matrix deteksi anti-forensik (§9.13), dan playbook siap-pakai per jenis kasus (§9.14) — dipakai sebagai lookup table saat kerja, bukan dibaca linear sekali jalan. Kalau kamu belum familiar dengan istilah SI/FN, $LogFile, $UsnJrnl, VSS, atau Event ID auth dasar, kembali dulu ke Bab 2-5 sebelum lanjut ke sini.
 
 ### 9.1 Konsep Dasar Timeline Correlation
 
@@ -668,25 +680,255 @@ vssadmin list shadows
 
 ---
 
-### 9.10 Tabel Master — Anti-Forensic Technique vs Detection Method
+### 9.10 Timestamp Normalization — Referensi Master
 
-| Teknik Anti-Forensik | Level | Dibahas Detail di | Deteksi Utama |
-|---|---|---|---|
-| Timestomp SI-only | Metadata | Bab 2 §2.1.3 | SI vs FN mismatch |
-| Timestomp SI+FN (SetMace) | Metadata | §9.6.1-9.6.2 | 4-way cross-check ke $LogFile/$UsnJrnl |
-| MFT record wiping | Filesystem | §9.7.1 | Carving FILE0 signature, $LogFile history |
-| $LogFile manipulation | Journal | §9.7.2 | Cek rentang waktu tercakup vs window insiden |
-| $UsnJrnl deletion | Journal | §9.7.3 | Journal hilang/reset, cross-check `fsutil usn deletejournal` di EVTX |
-| VSS deletion | Backup | Bab 5 §5.1.8 | `vssadmin delete shadows` command di EVTX 4688/Sysmon 1 |
-| Log cleared (1102) | Log | Bab 4 §4.9 | Event ID 1102 itu sendiri (self-logging saat log dihapus) |
-| Secure deletion (SDelete, dll) | Data | §9.8.1 | Evidence of execution tool wiping-nya sendiri |
-| USB wiping | Removable media | §9.8.2 | Cross-check registry USBSTOR vs LNK/Jump List |
-| Fileless malware | Execution | Bab 8 §8.12.3 | Memory forensics (Bab 7), Script Block Logging (Bab 4 §4.5.3) |
-| VM/sandbox detection | Evasion | Bab 8 §8.12.1 | — (mencegah analisa, bukan menghapus jejak) |
+> 💡 **Kenapa ini butuh section sendiri:** §9.2.1 sudah menyinggung normalisasi timezone secara konseptual per-artefak. Bagian ini adalah **referensi lengkap** yang dikumpulkan jadi satu tempat — semua epoch, semua formula konversi, dan jebakan presisi yang sering bikin korelasi meleset walau timezone-nya sudah benar. Dipakai sebagai lookup table saat kerja, bukan dibaca linear.
+
+#### 9.10.1 Tabel Epoch & Formula Konversi Lengkap
+
+| Format Timestamp | Epoch (Titik Nol) | Satuan | Ditemukan di | Formula ke Unix Epoch (detik) |
+|---|---|---|---|---|
+| **FILETIME** (Windows native) | 1 Januari 1601 00:00:00 UTC | 100-nanosecond intervals (ticks) | $MFT (SI/FN), EVTX, Registry LastWrite, Prefetch, LNK | `unix_seconds = (filetime / 10_000_000) - 11_644_473_600` |
+| **Unix Epoch** | 1 Januari 1970 00:00:00 UTC | detik (kadang milidetik) | Linux artifact, sebagian log aplikasi, Volatility 3 | Sudah Unix — tidak perlu konversi |
+| **WebKit / Chrome Time** | 1 Januari 1601 00:00:00 UTC | mikrodetik | Chrome/Edge/Opera History (Bab 6 §6.2.4) | `unix_seconds = (webkit_us / 1_000_000) - 11_644_473_600` |
+| **PRTime (Mozilla)** | 1 Januari 1970 00:00:00 UTC | mikrodetik | Firefox `places.sqlite` (Bab 6 §6.2.4) | `unix_seconds = prtime_us / 1_000_000` |
+| **DOS Date/Time (16-bit)** | Bergantung field, resolusi 2 detik | struct 2×16-bit | FAT32 legacy, sebagian ZIP metadata | Butuh bit-unpacking manual (year<<9 \| month<<5 \| day, dst) — jarang dipakai untuk NTFS modern |
+| **OLE Automation Date** | 30 Desember 1899 | hari (fraksi = waktu) | Beberapa field Office/VBA macro metadata | `unix_seconds = (ole_date - 25569) * 86400` |
+| **ICQ/Unix ms** | 1 Januari 1970 UTC | milidetik | Beberapa chat log, ActivitiesCache.db (Bab 5 §5.6) | `unix_seconds = unix_ms / 1000` |
+| **Mac Absolute Time** | 1 Januari 2001 00:00:00 UTC | detik | Jarang di Windows DFIR, muncul kalau ada cross-platform artifact (mis. iCloud sync) | `unix_seconds = mac_abs + 978_307_200` |
+
+> ⚠️ **Jebakan paling sering di CTF:** FILETIME dan WebKit Time **sama-sama** pakai epoch 1601, tapi **beda satuan** (100ns ticks vs mikrodetik) — dua kolom yang terlihat mirip besarannya sering ketuker formula konversinya kalau tidak hati-hati cek satuan dulu sebelum hitung.
 
 ---
 
-### 9.11 Ringkasan Command & Tools Cheat Sheet
+#### 9.10.2 Precision Mismatch Antar Artefak
+
+Setelah epoch & timezone sama-sama benar, jebakan berikutnya adalah **resolusi presisi** yang beda-beda antar sumber — ini penyebab utama `merge_asof` (§9.4.3) butuh `tolerance`, bukan exact match.
+
+| Sumber | Resolusi Asli | Implikasi Korelasi |
+|---|---|---|
+| $MFT SI/FN | 100ns (FILETIME native) | Presisi tertinggi, tapi timestomp mengubah nilai ini duluan (§9.6) |
+| EVTX TimeCreated | Milidetik | Cukup presisi untuk urutan sebab-akibat dalam 1 sistem |
+| $UsnJrnl | 100ns tapi sering dibulatkan tool parsing ke detik | Cek dokumentasi tool parser — pembulatan bisa bikin urutan event kelihatan simultan padahal beda |
+| Prefetch LastRun | Detik (kadang tanpa sub-second di beberapa versi Windows) | Jangan gunakan sebagai anchor presisi tinggi untuk urutan multi-event dalam window <1 detik |
+| FAT32 Created/Modified | Resolusi 2 detik (legacy), Accessed hanya tanggal (tanpa jam) | Kalau ketemu removable media FAT32 lama, jangan harap presisi sub-detik |
+| NTP/system clock drift | Bervariasi, bisa >beberapa detik kalau NTP sync gagal/dimatikan attacker | Cek EVTX Time-Service (Bab 4) kalau ada window korelasi yang "hampir cocok" tapi konsisten off by N detik |
+
+> 📌 **Aturan praktis:** Kalau dua event dari sumber berbeda selisih hanya 1-3 detik, itu **kemungkinan besar event yang sama** dilihat dari dua subsistem berbeda (masing-masing subsistem punya latency mencatat sendiri) — bukan dua kejadian terpisah. Jangan simpulkan urutan sebab-akibat yang salah hanya karena selisih sub-detik.
+
+---
+
+#### 9.10.3 Script Python — Universal Timestamp Converter
+
+Helper function untuk dipakai bareng workflow §9.4.2, mengonversi kolom mentah dari berbagai sumber ke satu kolom `timestamp` UTC yang konsisten sebelum digabung.
+
+```python
+from datetime import datetime, timedelta, timezone
+
+def filetime_to_unix(filetime: int) -> datetime:
+    """Windows FILETIME (100ns ticks sejak 1601-01-01) -> datetime UTC."""
+    return datetime(1601, 1, 1, tzinfo=timezone.utc) + timedelta(microseconds=filetime / 10)
+
+def webkit_to_unix(webkit_us: int) -> datetime:
+    """Chrome/WebKit time (mikrodetik sejak 1601-01-01) -> datetime UTC."""
+    return datetime(1601, 1, 1, tzinfo=timezone.utc) + timedelta(microseconds=webkit_us)
+
+def prtime_to_unix(prtime_us: int) -> datetime:
+    """Firefox PRTime (mikrodetik sejak 1970-01-01) -> datetime UTC."""
+    return datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(microseconds=prtime_us)
+
+def ole_to_unix(ole_date: float) -> datetime:
+    """OLE Automation Date (hari sejak 1899-12-30) -> datetime UTC."""
+    return datetime(1899, 12, 30, tzinfo=timezone.utc) + timedelta(days=ole_date)
+
+def mac_abs_to_unix(mac_abs: int) -> datetime:
+    """Mac Absolute Time (detik sejak 2001-01-01) -> datetime UTC."""
+    return datetime(2001, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=mac_abs)
+
+# Dipakai di pipeline §9.4.2 sebelum pd.concat, misal:
+# mft["timestamp"] = mft["FiletimeRaw"].apply(filetime_to_unix)
+# chrome_hist["timestamp"] = chrome_hist["visit_time"].apply(webkit_to_unix)
+```
+
+> 💡 **Kenapa ditulis manual, bukan pakai library konversi generik:** Banyak tool ZimmerTools/plaso sudah otomatis konversi FILETIME→human-readable di kolom output CSV mereka — helper ini paling berguna justru untuk kasus **raw hex/decimal timestamp** yang belum diparse tool apapun (misal ditemukan manual lewat hex editor saat CTF, atau field custom di malware config yang tidak dikenali parser standar).
+
+---
+
+### 9.11 Master Correlation Matrix — Event Type vs Artefak Lintas-Bab
+
+> 📖 **Beda dengan §9.9.3:** §9.9.3 adalah contoh penerapan (3 baris, kasus spesifik). Tabel di bawah ini adalah **referensi lengkap** yang mencakup hampir semua jenis event investigasi umum di DFIR Windows — dipakai sebagai checklist saat menyusun timeline dari nol, supaya tidak ada kategori artefak relevan yang terlewat.
+
+| Jenis Event/Kejadian | Artefak Primer (Evidence of Execution) | Artefak Sekunder (Evidence of Existence/Context) | Bab Rujukan |
+|---|---|---|---|
+| Eksekusi executable/malware | Prefetch, Amcache, EVTX 4688/Sysmon 1, UserAssist | ShimCache, $MFT (file existence), LNK kalau dijalankan via shortcut | Bab 3, 4, 5 |
+| Eksekusi script (PowerShell/VBS/JS) | Script Block Logging (EVTX 4104), PSReadLine history, Sysmon 1 | Prefetch untuk `powershell.exe`/`wscript.exe`, Amcache | Bab 4 §4.5.3, Bab 1 §1.2.14 |
+| Login interaktif/RDP | EVTX 4624 (Logon Type 2/10), EVTX 4778/4779 (RDP session) | UserAssist update, ActivitiesCache.db | Bab 3, 4, 5 |
+| Login gagal/brute force | EVTX 4625 (beruntun, source IP sama) | — | Bab 4 |
+| Persistence dibuat | Registry Run/RunOnce LastWrite, Scheduled Task creation (EVTX 4698), Service install (EVTX 7045) | Amcache untuk binary target persistence | Bab 8 (semua sub-bab) |
+| USB dicolok & file diakses | Registry USBSTOR, LNK TrackerDataBlock, $MFT entry file baru | Jump List, Recent folder | Bab 3 §3.3.3, Bab 5 §5.3 |
+| Download file dari browser | Browser download history, $MFT Created time file target, Mark-of-the-Web (Zone.Identifier ADS) | Prefetch untuk browser process | Bab 6 §6.3 |
+| Eksfiltrasi data keluar | Network artifact (di luar cakupan seri ini — cek firewall/proxy log eksternal), file access timestamp mendekati waktu network activity | $UsnJrnl READ/compression events, arsip (zip/rar) creation | Bab 2, luar-cakupan |
+| Ransomware / mass encryption | $UsnJrnl burst MODIFIED events dalam window pendek, VSS deletion command | Ekstensi file berubah massal ($MFT FN rename pattern) | §9.9.3, Bab 5 §5.1.8 |
+| Log/jejak dihapus manual | EVTX 1102 (Audit Log Cleared), EVTX 104 (System log cleared) | Gap statistik di super timeline (§9.9.2) | Bab 4 §4.9 |
+| Timestomping | SI≠FN atau SI=FN tapi ≠ $LogFile/$UsnJrnl | — | §9.6 |
+| Lateral movement | EVTX 4624 Logon Type 3 (network), Sysmon 3 (network connection), PsExec/WMI artifact (EVTX 4688 CommandLine) | Prefetch `psexec.exe`/`wmic.exe` di kedua host | Bab 4, Bab 8 |
+| Privilege escalation | EVTX 4672 (special privileges assigned), 4720/4732 (account/group changes) | Registry UAC bypass artifact (Bab 3) | Bab 3, 4 |
+| Anti-forensic tool dijalankan | Prefetch/Amcache untuk tool wiping/timestomp, EVTX 4688 CommandLine | Registry key khusus tool (mis. SDelete EULA key) | §9.8.3 |
+
+> ⚠️ **Cara pakai tabel ini:** Saat mulai investigasi jenis event tertentu, cek dulu baris yang cocok — kolom **Artefak Primer** adalah target pencarian utama, kolom **Sekunder** adalah cross-validation kalau primer hilang/dimanipulasi. Kalau primer DAN sekunder sama-sama kosong padahal event seharusnya terjadi, itu sinyal anti-forensik kuat (§9.9.1) — lanjut ke §9.12 untuk menilai seberapa "aneh" kekosongan itu.
+
+---
+
+### 9.12 Evidence Survivability Matrix
+
+**Pengertian & Fungsi:**
+Tidak semua artefak sama tahannya terhadap anti-forensik. Matrix ini meranking artefak berdasarkan **seberapa sulit dihapus/dimanipulasi** attacker rata-rata — berguna untuk memprioritaskan artefak mana yang dicek duluan saat waktu investigasi terbatas (khas kondisi CTF timed), dan untuk menjelaskan ke klien/auditor kenapa satu artefak "lebih dipercaya" daripada yang lain dalam laporan.
+
+| Artefak | Survivability | Kenapa | Cara Attacker Menghilangkannya | Rujukan |
+|---|---|---|---|---|
+| **Amcache.hve** | ⭐⭐⭐⭐⭐ Sangat Tinggi | Update ke hive butuh proses background (`Microsoft Compatibility Appraiser` task) + reboot, sulit di-manipulasi real-time saat eksekusi | Hapus manual file hive (mencurigakan sendiri karena hive sistem hilang), atau matikan scheduled task terkait sebelum eksekusi | Bab 3 §3.8 |
+| **$UsnJrnl** | ⭐⭐⭐⭐ Tinggi | Butuh privilege admin eksplisit untuk dihapus, dan aksi hapusnya sendiri (`fsutil usn deletejournal`) biasanya tercatat di EVTX 4688 | `fsutil usn deletejournal /D` — tapi command-nya sendiri jadi jejak (§9.7.3) | §9.7.3 |
+| **Registry USBSTOR/Run keys** | ⭐⭐⭐⭐ Tinggi | Tersebar di banyak sub-key, hapus satu key tidak menghapus semua histori (ControlSet backup, RegBack) | Hapus manual key spesifik, tapi shadow/backup registry (Bab 3 §3.1.7) sering masih menyimpan versi lama | Bab 3 |
+| **VSS (Volume Shadow Copy)** | ⭐⭐⭐ Sedang | Snapshot otomatis periodik, tapi **satu command** (`vssadmin delete shadows /all`) menghapus semuanya sekaligus | `vssadmin delete shadows /all /quiet` — command tercatat di EVTX 4688 kalau logging aktif | Bab 5 §5.1.8 |
+| **EVTX Security/System log** | ⭐⭐⭐ Sedang | Butuh privilege admin, tapi tindakan clear-nya **self-logging** (Event ID 1102 dicatat sebelum log kosong) | `wevtutil cl Security` atau clear via Event Viewer — selalu tinggalkan 1102 sebagai bukti tunggal | Bab 4 §4.9 |
+| **$LogFile** | ⭐⭐ Rendah-Sedang | Circular buffer kapasitas kecil, otomatis overwrite alami tanpa perlu aksi attacker eksplisit | Cukup tunggu (biarkan aktivitas disk normal menimpa), tidak perlu tool khusus — sulit dibedakan dari retensi normal | §9.7.2 |
+| **Prefetch** | ⭐⭐ Rendah | File individual per-executable, mudah dihapus manual atau lewat disable feature (`fsutil behavior set` /registry) | Hapus file `.pf` langsung dari `C:\Windows\Prefetch\`, atau disable Prefetch sebelum eksekusi | Bab 4 §4.13 |
+| **$MFT SI Timestamp** | ⭐ Sangat Rendah | Bisa diubah langsung lewat API standar (`SetFileTime`), tidak butuh tool khusus/privilege tinggi | PowerShell `Set-ItemProperty`, Timestomp.exe, banyak tool GUI gratis | Bab 2 §2.1.3, §9.6.1 |
+| **Recycle Bin ($I/$R files)** | ⭐ Sangat Rendah | Delete biasa masuk Recycle Bin, tapi Shift+Delete atau `Remove-Item -Force` skip sepenuhnya | Shift+Delete, atau empty Recycle Bin manual | Bab 5 §5.2 |
+
+> 💡 **Cara pakai untuk strategi investigasi:** Kalau waktu terbatas (CTF timed, atau butuh jawaban cepat untuk klien), **cek artefak survivability tinggi duluan** (Amcache, $UsnJrnl, registry) sebagai anchor yang paling mungkin masih utuh, baru turun ke artefak survivability rendah (Prefetch, SI timestamp) untuk detail tambahan — bukan sebaliknya. Kalau artefak survivability tinggi justru yang hilang/tidak konsisten, itu red flag lebih besar daripada kalau cuma Prefetch yang hilang (karena butuh usaha jauh lebih besar dari attacker untuk menghilangkannya).
+
+> ⚠️ **Survivability bukan jaminan mutlak:** Rating ini asumsi attacker "rata-rata" — attacker dengan akses kernel-level/rootkit (di luar cakupan seri ini yang fokus filesystem/registry/log forensics) berpotensi memanipulasi bahkan artefak ⭐⭐⭐⭐⭐ sekalipun. Gunakan matrix ini sebagai heuristik prioritas, bukan aturan absolut.
+
+---
+
+### 9.13 Tabel Master — Anti-Forensic Technique vs Detection Method
+
+> 📖 **Anti-Forensic Detection Matrix** — versi lengkap, menggabungkan level teknik, deteksi utama, tingkat kesulitan bagi attacker (cross-ref §9.12), dan confidence level hasil deteksinya. Dipakai sebagai rujukan cepat saat laporan butuh justifikasi "kenapa kesimpulan ini kuat/lemah".
+
+| Teknik Anti-Forensik | Level | Dibahas Detail di | Deteksi Utama | Effort Attacker | Confidence Deteksi |
+|---|---|---|---|---|---|
+| Timestomp SI-only | Metadata | Bab 2 §2.1.3 | SI vs FN mismatch | Rendah (tool gratis, GUI) | Tinggi — mismatch jelas & binary |
+| Timestomp SI+FN (SetMace) | Metadata | §9.6.1-9.6.2 | 4-way cross-check ke $LogFile/$UsnJrnl | Sedang (butuh tool khusus) | Sedang — perlu journal masih ada |
+| MFT record wiping | Filesystem | §9.7.1 | Carving FILE0 signature, $LogFile history | Sedang-Tinggi (butuh akses raw disk) | Sedang — bergantung journal survivability |
+| $LogFile manipulation | Journal | §9.7.2 | Cek rentang waktu tercakup vs window insiden | Rendah (cukup tunggu, circular alami) | Rendah — sulit dibedakan dari retensi normal |
+| $UsnJrnl deletion | Journal | §9.7.3 | Journal hilang/reset, cross-check `fsutil usn deletejournal` di EVTX | Sedang (privilege admin) | Tinggi — command self-logging di EVTX 4688 |
+| VSS deletion | Backup | Bab 5 §5.1.8 | `vssadmin delete shadows` command di EVTX 4688/Sysmon 1 | Rendah (satu command) | Tinggi — command tercatat, sangat spesifik |
+| Log cleared (1102) | Log | Bab 4 §4.9 | Event ID 1102 itu sendiri (self-logging saat log dihapus) | Rendah (built-in Windows) | Tinggi — self-logging by design |
+| Secure deletion (SDelete, dll) | Data | §9.8.1 | Evidence of execution tool wiping-nya sendiri | Sedang (butuh download tool) | Tinggi — Prefetch/Amcache jarang ikut terhapus |
+| USB wiping | Removable media | §9.8.2 | Cross-check registry USBSTOR vs LNK/Jump List | Sedang | Sedang — bergantung media masih tersedia diperiksa |
+| Fileless malware | Execution | Bab 8 §8.12.3 | Memory forensics (Bab 7), Script Block Logging (Bab 4 §4.5.3) | Tinggi (skill teknis lebih besar) | Rendah-Sedang — hilang total kalau memory tidak sempat diakuisisi |
+| VM/sandbox detection | Evasion | Bab 8 §8.12.1 | — (mencegah analisa, bukan menghapus jejak) | Sedang | Tidak berlaku — bukan penghapus jejak, tapi pencegah observasi |
+| Registry key deletion manual | Metadata/Registry | Bab 3 §3.1.7 | RegBack/ControlSet backup, transaction log registry | Rendah (satu key) | Sedang — bergantung backup registry masih ada |
+| System clock manipulation | Anti-korelasi | — (baru, lihat catatan di bawah) | Cross-check NTP/Time-Service EVTX vs $LogFile physical write order | Sedang | Sedang — journal urutan fisik tetap benar walau clock salah |
+| Browser history clearing | Application | Bab 6 §6.5 | WAL/journal file SQLite belum ter-vacuum, cache/thumbnail masih ada | Rendah (built-in browser feature) | Sedang — bergantung seberapa cepat pemeriksaan dilakukan |
+
+> ⚠️ **Tentang System Clock Manipulation:** Teknik ini tidak mengubah satu artefak spesifik, tapi mengubah **jam sistem itu sendiri** sebelum beraksi, supaya semua timestamp baru tercatat salah secara konsisten (SI, FN, EVTX, journal — semua "kompak" karena memang direkam saat jam sudah diubah). Ini **tidak terdeteksi** oleh 4-way cross-check §9.6.2 (karena semua sumber tetap konsisten satu sama lain). Deteksi realistis: cross-check EVTX Time-Service/Kernel-General Event ID terkait perubahan waktu sistem, dan **urutan relatif** kejadian di $LogFile (yang mencatat urutan fisik operasi disk, bukan cuma nilai timestamp) — kalau urutan logis kejadian tidak masuk akal dibanding timestamp yang tercatat, itu indikasi clock manipulation, bukan timestomping artefak individual.
+
+> 💡 **Cara baca kolom Effort vs Confidence bersama-sama:** Teknik dengan **Effort Rendah + Confidence Deteksi Tinggi** (Timestomp SI-only, VSS deletion, Log cleared) adalah yang paling sering ditemukan di kasus CTF/real-world karena murah dilakukan attacker tapi mudah dideteksi investigator. Teknik dengan **Effort Tinggi + Confidence Rendah** (fileless malware tanpa memory capture) adalah kasus paling sulit — kombinasi ini yang butuh playbook khusus (§9.14) dan idealnya pencegahan (logging proaktif) daripada deteksi post-mortem semata.
+
+---
+
+### 9.14 Investigation Playbooks
+
+> 📖 **Beda dengan §9.12 (mini case study nanti):** Playbook di sini adalah **template checklist yang dipakai DI AWAL** investigasi untuk jenis kasus yang sudah dikenal polanya — bukan narasi hasil investigasi. Tiap playbook mengikuti alur umum §9.5.1 tapi dikonkretkan jadi urutan langkah spesifik per skenario, lengkap dengan rujukan §/Bab supaya tinggal loncat ke detail teknisnya.
+
+#### 9.14.1 Playbook — Suspected Malware Execution
+
+```
+[ ] 1. Cek Evidence of Execution dulu (§9.5.2) — Amcache, Prefetch, EVTX 4688/Sysmon 1
+[ ] 2. Kalau ditemukan nama proses mencurigakan, catat: nama file, path, waktu eksekusi
+[ ] 3. Cross-check UserAssist (Bab 3 §3.6.1) — apakah dijalankan via GUI double-click?
+[ ] 4. Cek Evidence of Existence (§9.5.2) — $MFT Created time file tsb, konsisten dgn [2]?
+[ ] 5. SI vs FN check (Bab 2 §2.1.3) — ada indikasi timestomp pada file malware?
+[ ] 6. Cek asal file — Download history (Bab 6 §6.3), LNK/USB (§9.5.3), atau email attachment?
+[ ] 7. Cek persistence (Bab 8, semua sub-bab) — apakah malware pasang mekanisme survive reboot?
+[ ] 8. Cek jaringan/lateral movement kalau relevan (Sysmon 3, EVTX 4624 Type 3)
+[ ] 9. Cek Evidence Survivability (§9.12) — artefak mana yang hilang, apakah polanya wajar?
+[ ] 10. Susun timeline naratif (§9.5.1 langkah 7) dari titik masuk sampai dampak
+```
+
+---
+
+#### 9.14.2 Playbook — Data Exfiltration via USB/Removable Media
+
+```
+[ ] 1. Registry USBSTOR (Bab 3 §3.3.3) — daftar semua device pernah dicolok, catat waktu FirstInsert/LastConnected
+[ ] 2. Cocokkan window waktu USB tercolok dengan LNK/Jump List baru (Bab 5 §5.3) di window sama
+[ ] 3. Cek TrackerDataBlock Volume Serial Number (§9.5.3) — konfirmasi LNK memang menunjuk device USB tsb
+[ ] 4. Cek $MFT/$UsnJrnl untuk aktivitas COPY/WRITE ke device tsb (kalau drive letter USB diketahui)
+[ ] 5. Cek ShellBag (Bab 3 §3.7) — apakah user pernah browse ke folder tertentu sebelum copy?
+[ ] 6. Kalau dicurigai wiping setelah copy — cek §9.8.2 (USB wiping indicators)
+[ ] 7. Cek Recycle Bin (Bab 5 §5.2) — apakah file "dihapus" biasa (masih recoverable) atau Shift+Delete?
+[ ] 8. Evidence Survivability check (§9.12) — USBSTOR registry biasanya bertahan, jadikan anchor utama
+[ ] 9. Dokumentasikan: device USB apa, kapan dicolok, file apa yang diakses/disalin, kapan dicabut
+```
+
+---
+
+#### 9.14.3 Playbook — Ransomware Incident
+
+```
+[ ] 1. Cari anchor point — biasanya EVTX 1102 (log cleared) atau alert AV/EDR eksternal
+[ ] 2. Cek $UsnJrnl untuk burst MODIFIED events dalam window pendek (§9.9.3, pola mass-encryption)
+[ ] 3. Perluas window ke belakang — cari evidence of execution proses ransomware (Amcache/Prefetch/EVTX 4688)
+[ ] 4. Cek VSS — vssadmin list shadows kosong? Cross-check EVTX 4688 untuk command "vssadmin delete shadows"
+[ ] 5. Root cause — telusuri ke belakang lagi: initial access via USB (§9.14.2)? Email attachment (Bab 6)?
+    Phishing link? RDP brute force (EVTX 4625 beruntun)?
+[ ] 6. Cek persistence tambahan yang mungkin dipasang SEBELUM enkripsi mulai (Bab 8)
+[ ] 7. Cek lateral movement — apakah ransomware menyebar ke host lain sebelum sampai ke mesin ini?
+    (Sysmon 3, EVTX 4624 Type 3, artefak PsExec/WMI)
+[ ] 8. Susun timeline final: initial access → persistence → lateral movement (kalau ada) →
+    VSS deletion → mass encryption → log cleanup
+[ ] 9. Identifikasi ransomware note/extension pattern untuk kemungkinan atribusi keluarga ransomware
+    (di luar cakupan seri ini — cross-reference threat intel eksternal)
+```
+
+---
+
+#### 9.14.4 Playbook — Suspected Anti-Forensics / Insider Threat
+
+```
+[ ] 1. Mulai dari Correlation Matrix (§9.11) — event apa yang dicurigai, artefak apa yang SEHARUSNYA ada
+[ ] 2. Cek satu-satu apakah artefak primer & sekunder ada — kalau kosong semua, lanjut ke [3]
+[ ] 3. Rank artefak yang hilang berdasarkan Evidence Survivability (§9.12) —
+    kalau yang hilang justru artefak survivability TINGGI (Amcache, USBSTOR), itu sinyal kuat
+[ ] 4. Terapkan Anti-Forensic Detection Matrix (§9.13) — teknik mana yang paling cocok
+    dengan pola kekosongan yang ditemukan?
+[ ] 5. Cari evidence of execution TOOL anti-forensik itu sendiri (§9.8.3) —
+    Prefetch/Amcache/EVTX 4688 untuk nama tool wiping/timestomp
+[ ] 6. Cek statistical gap detection (§9.9.2) di super timeline — window "sepi" yang tidak wajar?
+[ ] 7. Cross-validate ke VSS (§9.9.4) — kondisi sebelum insiden, sebelum sempat dimanipulasi
+[ ] 8. Kalau semua artefak "live" konsisten & tidak mencurigakan tapi kasus tetap dicurigai —
+    pertimbangkan system clock manipulation (§9.13, catatan khusus) sebagai penjelasan alternatif
+[ ] 9. Dokumentasikan bukan cuma APA yang ditemukan, tapi APA yang TIDAK ditemukan padahal
+    seharusnya ada (§9.9.1) — kekosongan yang terdokumentasi rapi tetap punya nilai pembuktian
+```
+
+---
+
+#### 9.14.5 Playbook — Lateral Movement Cross-Host
+
+```
+[ ] 1. Identifikasi host awal (patient zero) dari playbook §9.14.1 atau §9.14.3
+[ ] 2. Cek EVTX 4624 Logon Type 3 (network) di host target — source IP/hostname dari host awal?
+[ ] 3. Cek metode: PsExec (Service install EVTX 7045 + named pipe artifact),
+    WMI (EVTX 4688 CommandLine `wmic.exe`/`wmiprvse.exe`), atau RDP (4624 Type 10)?
+[ ] 4. Cross-check Prefetch/Amcache di HOST TARGET untuk tool lateral movement yang sama
+[ ] 5. Bandingkan timestamp login di host target dengan timestamp aktivitas terakhir di host awal —
+    harus ada urutan logis (host awal duluan, target sesudahnya, minus network latency)
+[ ] 6. Ulangi §9.14.1 (malware execution playbook) di HOST TARGET sebagai host baru
+[ ] 7. Lacak terus sampai ditemukan host yang tidak menunjukkan bukti lanjutan (titik akhir pergerakan
+    lateral yang diketahui) atau sampai ke exfiltration point
+[ ] 8. Susun diagram/tabel multi-host: host, waktu compromise, metode masuk, aksi dilakukan
+    (Timeline Explorer §9.2.2 bisa load multi-host CSV sekaligus dengan kolom "Hostname" tambahan)
+```
+
+> 💡 **Catatan umum untuk semua playbook:** Checklist ini adalah **urutan default**, bukan urutan kaku — kalau di tengah jalan ditemukan bukti yang mengarah ke playbook lain (misal playbook malware execution menemukan indikasi USB jadi initial access), lompat ke playbook yang relevan (§9.14.2) lalu kembali. Prinsip §9.5.1 (persempit window, validasi silang ≥2 artefak, perluas ke belakang/depan) tetap berlaku di semua playbook ini.
+
+---
+
+### 9.15 Ringkasan Command & Tools Cheat Sheet
 
 ```bash
 # ===== TIMELINE EXPLORER (manual) =====
@@ -721,7 +963,7 @@ print(df.nlargest(10, 'gap')[['timestamp','gap']])
 
 ---
 
-### 9.12 Mini Case Study — Full Timeline Reconstruction dengan Gap Detection
+### 9.16 Mini Case Study — Full Timeline Reconstruction dengan Gap Detection
 
 **Skenario:** Ditemukan indikasi ransomware pada sebuah image disk Windows 10. Prefetch untuk proses malware tidak ditemukan, VSS kosong, dan Event Log tampak "bersih" — tapi investigasi lanjutan menunjukkan cerita berbeda.
 
