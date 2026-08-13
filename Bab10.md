@@ -41,9 +41,34 @@
   - [10.9 Sysmon & EDR Telemetry — Domain Context](#109-sysmon--edr-telemetry--domain-context)
     - [10.9.1 Konfigurasi Sysmon Relevan untuk Domain Environment](#1091-konfigurasi-sysmon-relevan-untuk-domain-environment)
     - [10.9.2 Korelasi Sysmon + Domain Event Log](#1092-korelasi-sysmon--domain-event-log)
-  - [10.10 Master Correlation Matrix — AD Attack Chain vs Artefak](#1010-master-correlation-matrix--ad-attack-chain-vs-artefak)
-  - [10.11 Cheat Sheet — Commands & Tools](#1011-cheat-sheet--commands--tools)
-  - [10.12 Mini Case Study — Domain Compromise Investigation](#1012-mini-case-study--domain-compromise-investigation)
+  - [10.10 LDAP & AD Enumeration Forensics](#1010-ldap--ad-enumeration-forensics)
+    - [10.10.1 LDAP Fundamentals — Port, Protocol, Anonymous Bind](#10101-ldap-fundamentals--port-protocol-anonymous-bind)
+    - [10.10.2 Tools Enumerasi — dsquery, AdFind, PowerView, ldapsearch](#10102-tools-enumerasi--dsquery-adfind-powerview-ldapsearch)
+    - [10.10.3 Deteksi Enumerasi Massal — Directory Service Access & Sysmon](#10103-deteksi-enumerasi-massal--directory-service-access--sysmon)
+    - [10.10.4 Anonymous Bind & Null Session Abuse](#10104-anonymous-bind--null-session-abuse)
+  - [10.11 BloodHound / AD Attack Path Analysis](#1011-bloodhound--ad-attack-path-analysis)
+    - [10.11.1 Konsep BloodHound — Graph Database Attack Path](#10111-konsep-bloodhound--graph-database-attack-path)
+    - [10.11.2 SharpHound Collector — Jejak Eksekusi & Output](#10112-sharphound-collector--jejak-eksekusi--output)
+    - [10.11.3 Deteksi Koleksi Data BloodHound di Jaringan](#10113-deteksi-koleksi-data-bloodhound-di-jaringan)
+    - [10.11.4 BloodHound Sebagai Alat Investigator (Bukan Cuma Attacker)](#10114-bloodhound-sebagai-alat-investigator-bukan-cuma-attacker)
+  - [10.12 Trust Relationship Forensics](#1012-trust-relationship-forensics)
+    - [10.12.1 Jenis Trust — Parent-Child, Forest, External, Transitive](#10121-jenis-trust--parent-child-forest-external-transitive)
+    - [10.12.2 SID History Injection & Trust Abuse](#10122-sid-history-injection--trust-abuse)
+    - [10.12.3 Inter-Realm Golden Ticket & Forest Trust Key Compromise](#10123-inter-realm-golden-ticket--forest-trust-key-compromise)
+    - [10.12.4 Event ID & Command Enumerasi Trust](#10124-event-id--command-enumerasi-trust)
+  - [10.13 AD CS (Certificate Services) Forensics](#1013-ad-cs-certificate-services-forensics)
+    - [10.13.1 Konsep Dasar AD CS — CA, Template, Enrollment](#10131-konsep-dasar-ad-cs--ca-template-enrollment)
+    - [10.13.2 ESC1–ESC8 Ringkas — Vektor Abuse Umum](#10132-esc1esc8-ringkas--vektor-abuse-umum)
+    - [10.13.3 Artefak Forensik — CA Database, Event ID, Certutil](#10133-artefak-forensik--ca-database-event-id-certutil)
+    - [10.13.4 Golden Certificate & Certificate-Based Persistence](#10134-golden-certificate--certificate-based-persistence)
+  - [10.14 DNS Forensics dalam Active Directory](#1014-dns-forensics-dalam-active-directory)
+    - [10.14.1 AD-Integrated DNS — Struktur & Lokasi Data](#10141-ad-integrated-dns--struktur--lokasi-data)
+    - [10.14.2 DNS Server Event Logging](#10142-dns-server-event-logging)
+    - [10.14.3 DNS Abuse — Zone Transfer, Dynamic Update, WPAD Spoofing](#10143-dns-abuse--zone-transfer-dynamic-update-wpad-spoofing)
+    - [10.14.4 Korelasi Sysmon Event ID 22 dengan Query DNS Domain](#10144-korelasi-sysmon-event-id-22-dengan-query-dns-domain)
+  - [10.15 Master Correlation Matrix — AD Attack Chain vs Artefak](#1015-master-correlation-matrix--ad-attack-chain-vs-artefak)
+  - [10.16 Cheat Sheet — Commands & Tools](#1016-cheat-sheet--commands--tools)
+  - [10.17 Mini Case Study — Domain Compromise Investigation](#1017-mini-case-study--domain-compromise-investigation)
 
 *(Bab 1: Struktur Drive & Direktori — `bab1.md`. Bab 2: File Sistem NTFS & $MFT — `bab2.md`. Bab 3: Windows Registry Forensics — `bab3.md`. Bab 4: EVTX & Event ID Forensics — `bab4.md`. Bab 5: User Activity Trail — `bab5.md`. Bab 6: Browser Forensics — `bab6.md`. Bab 7: Memory Forensics — `bab7.md`. Bab 8: Malware & Persistence Analysis — `bab8.md`. Bab 9: Timeline Correlation & Anti-Forensics — `bab9.md`.)*
 
@@ -304,7 +329,7 @@ Attacker mencuri tiket Kerberos (TGT atau Service Ticket) yang sudah ada di memo
 
 | Indikator | Cek Di |
 |---|---|
-| Login (4624) dari IP/host yang tidak konsisten dengan lokasi fisik user biasanya | Correlation matrix (§10.10) |
+| Login (4624) dari IP/host yang tidak konsisten dengan lokasi fisik user biasanya | Correlation matrix (§10.15) |
 | Tiket dipakai dari 2 mesin berbeda dalam window waktu yang secara fisik tidak masuk akal (mis. New York lalu London dalam 5 menit) | Cross-host correlation, extend §9.14.5 |
 | Sysmon Event ID 1 untuk tools seperti `Rubeus.exe`/`Mimikatz` dengan argumen `ptt` (pass-the-ticket) | §10.9 |
 
@@ -694,7 +719,447 @@ Contoh korelasi:
 
 ---
 
-### 10.10 Master Correlation Matrix — AD Attack Chain vs Artefak
+### 10.10 LDAP & AD Enumeration Forensics
+
+#### 10.10.1 LDAP Fundamentals — Port, Protocol, Anonymous Bind
+
+**Pengertian & Fungsi:**
+LDAP (Lightweight Directory Access Protocol) adalah protokol yang dipakai untuk **membaca/menulis objek AD** — hampir semua tool enumerasi domain (dari `dsquery` bawaan sampai BloodHound, §10.11) pada akhirnya melakukan query LDAP ke DC. Memahami protokol ini penting karena LDAP query, berbeda dari Kerberos (§10.3), **tidak selalu butuh autentikasi penuh** — celah inilah yang sering dieksploitasi di tahap awal reconnaissance.
+
+| Port | Protokol | Keterangan |
+|---|---|---|
+| **389/TCP** | LDAP (plaintext/StartTLS) | Port default, banyak query enumerasi awal lewat sini |
+| **636/TCP** | LDAPS (LDAP over SSL/TLS) | Versi terenkripsi — payload query tidak terlihat plaintext di capture jaringan |
+| **3268/TCP** | Global Catalog (LDAP) | Query lintas-domain dalam satu forest, hanya subset atribut yang di-index |
+| **3269/TCP** | Global Catalog (LDAPS) | Versi terenkripsi dari 3268 |
+
+> ⚠️ **Anonymous Bind — celah lama yang masih sering ditemukan:** Secara default modern AD **menolak** anonymous LDAP bind, tapi banyak domain lama/misconfigured masih mengizinkannya (biasanya warisan aplikasi legacy yang butuh akses LDAP tanpa kredensial). Kalau anonymous bind aktif, attacker bisa enumerasi struktur dasar domain (nama domain, sebagian OU) **tanpa kredensial sama sekali** — lihat §10.10.4 untuk detail deteksinya.
+
+---
+
+#### 10.10.2 Tools Enumerasi — dsquery, AdFind, PowerView, ldapsearch
+
+| Tool | Platform | Karakteristik Query | Jejak Eksekusi |
+|---|---|---|---|
+| **dsquery** | Windows bawaan (RSAT) | Query LDAP native lewat command line, sering dianggap "aman" karena signed Microsoft binary | Prefetch/Amcache `dsquery.exe` (Bab 3 §3.8), CommandLine di EVTX 4688/Sysmon 1 |
+| **AdFind** | Third-party (`AdFind.exe`), sangat populer di real-world attack | Query LDAP fleksibel, sering dipakai untuk dump seluruh struktur domain dalam satu command | Binary tidak signed Microsoft — lebih mudah dicurigai AV, Prefetch/Amcache untuk `AdFind.exe` |
+| **PowerView (PowerSploit/Empire)** | PowerShell module | Query LDAP lewat .NET `DirectoryServices`, banyak fungsi siap pakai (`Get-DomainUser`, `Get-DomainComputer`, dll) | Script Block Logging EVTX 4104 (Bab 4 §4.5.3) — nama fungsi PowerView sering langsung terlihat di log |
+| **ldapsearch** | Cross-platform (Linux/attacker box) | Query LDAP langsung dari luar jaringan Windows, sering dipakai untuk cek anonymous bind | **Tidak** meninggalkan jejak eksekusi di sisi Windows — hanya terlihat dari sisi network/DC-side logging (§10.10.3) |
+
+```bash
+# Contoh command enumerasi klasik (untuk referensi deteksi, bukan panduan eksploitasi)
+dsquery user -limit 0
+AdFind.exe -f "(objectcategory=person)" -csv
+ldapsearch -x -H ldap://dc_ip -b "DC=corp,DC=local"
+```
+
+```powershell
+# PowerView — contoh nama fungsi yang jadi signature di Script Block Logging
+Get-DomainUser -SPN                 # sering jadi langkah awal sebelum Kerberoasting (§10.3.4)
+Get-DomainComputer -Unconstrained   # cari mesin dengan unconstrained delegation
+```
+
+> 📌 **Kenapa `dsquery` sering luput dari deteksi:** Karena binary bawaan Microsoft yang signed, banyak organisasi tidak memasukkannya ke watchlist EDR — padahal fungsinya sama persis dengan AdFind untuk tujuan enumerasi. Command line logging (EVTX 4688 dengan detail command line aktif) adalah satu-satunya cara realistis membedakan penggunaan `dsquery` yang legitimate (admin sehari-hari) dari yang dipakai attacker (query massal/tidak wajar dalam waktu singkat).
+
+---
+
+#### 10.10.3 Deteksi Enumerasi Massal — Directory Service Access & Sysmon
+
+| Sumber | Event ID / Field | Signifikansi |
+|---|---|---|
+| **Security.evtx di DC** | **4661** — Handle to Object Requested | Akses ke objek AD spesifik — volume tinggi dalam waktu singkat dari satu akun = indikasi enumerasi otomatis |
+| **Security.evtx di DC** | **4662** — Operation Performed on Object | Sama seperti dipakai untuk deteksi DCSync (§10.8.1), tapi di sini fokus ke pola akses baca massal, bukan replikasi |
+| **Directory Service log di DC** | **1644** — Expensive/Inefficient LDAP Search | DC secara native bisa mencatat query LDAP yang "mahal" (scan banyak objek, filter tidak ter-index) — butuh diagnostic logging level tertentu diaktifkan |
+| **Sysmon (di host sumber query)** | Event ID 3 (Network Connection) ke port 389/636/3268/3269 | Volume tinggi/koneksi berulang ke DC di port LDAP dari satu host — kandidat kuat proses enumerasi berjalan |
+
+```powershell
+# Aktifkan expensive/inefficient search logging (jalankan di DC, butuh privilege admin)
+# Set registry: HKLM\SYSTEM\CurrentControlSet\Services\NTDS\Diagnostics\"15 Field Engineering" = 5
+
+# Query hasil setelah logging aktif
+Get-WinEvent -LogName "Directory Service" -FilterXPath "*[System[EventID=1644]]"
+```
+
+> ⚠️ **Baseline dulu sebelum menyimpulkan "mencurigakan":** LDAP query dalam volume tinggi **bukan otomatis berarti serangan** — tool inventaris IT, backup software, dan monitoring tool legitimate juga melakukan query LDAP reguler. Bandingkan dengan baseline volume normal per-akun/per-host sebelum menandai satu sumber sebagai anomali, sama prinsipnya dengan deteksi anomali volume di Bab 9 §9.6.
+
+---
+
+#### 10.10.4 Anonymous Bind & Null Session Abuse
+
+**Pengertian & Fungsi:**
+Selain LDAP anonymous bind (§10.10.1), Windows lama mengenal konsep **null session** — koneksi SMB (`\\dc\IPC$`) tanpa kredensial yang bisa dipakai untuk enumerasi terbatas (nama user, share, policy password). Modern AD mem-block ini secara default, tapi konfigurasi legacy/GPO yang salah bisa membuka celah ini kembali.
+
+| Vektor | Command Contoh (Referensi Deteksi) | Info yang Bisa Bocor |
+|---|---|---|
+| **LDAP Anonymous Bind** | `ldapsearch -x -H ldap://dc_ip -b "DC=corp,DC=local"` (tanpa `-D`/`-w`) | Struktur dasar domain, sebagian atribut objek tergantung ACL default |
+| **Null Session (SMB)** | `net use \\dc_ip\IPC$ "" /u:""` | Daftar user/share (kalau `RestrictAnonymous` tidak dikonfigurasi ketat) |
+
+| Indikator Deteksi | Detail |
+|---|---|
+| EVTX 4624 Logon Type 3 dengan `Account Name` = **ANONYMOUS LOGON** | Tanda paling langsung dari null session/anonymous bind yang berhasil |
+| Volume percobaan anonymous logon dari satu IP eksternal dalam waktu singkat | Indikasi scanning otomatis (mis. `enum4linux`, `crackmapexec --shares` tanpa kredensial) |
+
+> 💡 **Cek konfigurasi, bukan cuma log, kalau menemukan celah ini:** Kalau anonymous bind/null session berhasil dalam investigasi, langkah lanjut yang wajib adalah cek nilai `RestrictAnonymous`/`dsHeuristics` di GPO/registry DC (bukan cuma mencatat kejadiannya) — root cause biasanya konfigurasi yang salah, bukan exploit satu kali pakai.
+
+---
+
+### 10.11 BloodHound / AD Attack Path Analysis
+
+#### 10.11.1 Konsep BloodHound — Graph Database Attack Path
+
+**Pengertian & Fungsi:**
+BloodHound adalah tool yang mengumpulkan data relasi AD (user, group, computer, session, ACL, group policy) lewat query LDAP dan SMB/RPC (§10.10, §10.7.1), lalu memetakannya ke **graph database** (Neo4j) untuk menemukan **jalur privilege escalation tidak langsung** — persis konsep yang sudah disinggung di §10.8.4 (ACL Abuse), tapi BloodHound mengotomatiskan pencarian rantai tersebut di skala seluruh domain sekaligus.
+
+```
+Alur kerja BloodHound (sisi attacker/pentester):
+[1] Koleksi data      → Collector (SharpHound/bloodhound-python) query LDAP + SMB ke semua host
+[2] Import ke Neo4j    → Data relasi dimuat ke graph database
+[3] Query Cypher       → Cari jalur terpendek dari "titik kompromi awal" ke "Domain Admins"
+[4] Attack path        → Graph visual menunjukkan rantai: User A → Group B → ACL → Domain Admin
+```
+
+> 📖 **Cross-reference §10.8.4:** ACL Abuse yang dibahas di §10.8.4 adalah **contoh konkret** dari satu edge (hubungan) dalam graph BloodHound — bagian ini membahas bagaimana BloodHound mengumpulkan data untuk memetakan seluruh domain, bukan cuma satu rantai yang sudah diketahui.
+
+---
+
+#### 10.11.2 SharpHound Collector — Jejak Eksekusi & Output
+
+| Collector | Platform | Metode Koleksi |
+|---|---|---|
+| **SharpHound.exe / SharpHound.ps1** | Windows (.NET), paling umum dipakai | LDAP query untuk data AD + SMB/RPC/WinRM ke tiap host untuk data session & local admin |
+| **bloodhound-python** | Python, biasa dari attacker box eksternal | LDAP + SMB via Impacket-style library, tidak butuh eksekusi di mesin domain-joined |
+| **AzureHound** | Cloud (Azure AD/Entra ID) | Di luar cakupan bab ini (fokus on-prem AD), disebut untuk konteks kalau domain hybrid |
+
+| Jejak yang Ditinggalkan | Lokasi/Detail |
+|---|---|
+| File output (`.json` per kategori: `users.json`, `computers.json`, dll, atau `.zip` gabungan) | Path eksekusi collector — sering di `%TEMP%` atau direktori kerja attacker; cek $MFT Created time (Bab 2) untuk timestamp koleksi |
+| Prefetch/Amcache untuk `SharpHound.exe` | Bab 3 §3.8, Bab 4 §4.13 — evidence of execution standar |
+| Sysmon Event ID 1 dengan `CommandLine` mengandung parameter collection method (`-CollectionMethod All`, dll) | Command line SharpHound cukup khas untuk dijadikan signature deteksi |
+| Volume LDAP query tinggi dalam waktu relatif singkat (§10.10.3) dari satu host/akun | Karena SharpHound mengambil hampir semua atribut objek AD sekaligus, polanya jauh lebih "berat" dibanding query manual biasa |
+| Koneksi SMB/RPC (port 445/135) ke **banyak host berbeda** dari satu sumber dalam waktu singkat | Bagian "session collection" SharpHound query tiap host untuk lihat siapa yang sedang login — pola scanning ke banyak host ini jadi indikator kuat |
+
+```powershell
+# Contoh command SharpHound yang sering dipakai (referensi deteksi)
+SharpHound.exe -c All -d corp.local --outputdirectory C:\Windows\Temp\
+# bloodhound-python (dari luar, lewat kredensial domain valid)
+bloodhound-python -u user -p pass -d corp.local -c All -ns <dc_ip>
+```
+
+> ⚠️ **Kenapa file output BloodHound adalah bukti emas kalau ditemukan:** File `.json`/`.zip` hasil koleksi berisi **peta lengkap privilege domain pada momen itu** — kalau ditemukan di disk attacker atau di host korban yang belum dihapus, investigator bisa langsung tahu **apa yang sudah dilihat attacker**, bukan cuma menduga. Prioritaskan pencarian file ini (lihat cheat sheet §10.16) begitu ada indikasi enumerasi domain besar-besaran.
+
+---
+
+#### 10.11.3 Deteksi Koleksi Data BloodHound di Jaringan
+
+| Indikator | Detail |
+|---|---|
+| Sysmon 3 (Network Connection) — satu host melakukan koneksi SMB/RPC ke **banyak host berbeda** dalam window singkat (menit, bukan jam) | Pola "session enumeration" khas SharpHound, beda dari akses SMB normal (biasanya ke sedikit host spesifik) |
+| Directory Service Access 4661/4662 volume tinggi (§10.10.3) diikuti Sysmon 3 volume tinggi ke banyak host | Kombinasi dua fase koleksi BloodHound (LDAP dulu, lalu SMB/session) — korelasi dua fase ini jauh lebih meyakinkan daripada satu indikator saja |
+| EVTX 5145 (Detailed File Share) — akses ke share `ADMIN$`/`IPC$` dari satu akun ke banyak host berturutan | Cross-reference Bab 4 — pola ini muncul saat SharpHound query local admin group tiap host |
+| Tools defensif seperti **BloodHound Community Edition sendiri** atau **"BlueHound"/canary object** dipasang proaktif oleh blue team | Di luar cakupan post-mortem forensik murni, tapi relevan untuk konteks kesiapan deteksi organisasi |
+
+> 💡 **Kenapa deteksi real-time BloodHound sulit dan sering luput:** Query LDAP individual yang dilakukan SharpHound **secara teknis legitimate** (tidak ada exploit, cuma baca atribut yang memang bisa dibaca user domain biasa) — yang membedakannya dari aktivitas normal murni **volume dan pola korelasi lintas-sumber** (LDAP + SMB + banyak host dalam waktu singkat), bukan satu event tunggal yang "berbahaya" sendirian. Ini konsisten dengan prinsip Bab 9 §9.1.1: satu sumber lemah, korelasi banyak sumber kuat.
+
+---
+
+#### 10.11.4 BloodHound Sebagai Alat Investigator (Bukan Cuma Attacker)
+
+**Pengertian & Fungsi:**
+Selain dipakai attacker, investigator/blue team bisa menjalankan BloodHound **setelah insiden** terhadap domain yang sama untuk memvalidasi apakah attack path yang dicurigai memang benar-benar ada secara teknis — mengubah temuan dari "kelihatannya berbahaya" menjadi "confirmed exploitable path".
+
+| Skenario Investigasi | Kegunaan BloodHound |
+|---|---|
+| Akun user biasa (bukan admin) diduga jadi initial foothold | Jalankan BloodHound, cek apakah ada jalur (Cypher query "Shortest Path to Domain Admins") dari akun tsb — konfirmasi seberapa serius dampak kompromi akun itu |
+| Menemukan indikasi ACL abuse (§10.8.4) tapi tidak yakin dampaknya | Import data BloodHound, visualisasikan ACL yang ditemukan untuk lihat apakah benar mengarah ke privilege tinggi atau dead-end |
+| Menyusun laporan dampak (impact assessment) pasca-insiden | Graph BloodHound jadi bukti visual yang mudah dipahami stakeholder non-teknis untuk menjelaskan "kenapa satu akun biasa berbahaya" |
+
+> 📌 **Catatan penting:** Menjalankan BloodHound terhadap domain LIVE pasca-insiden tetap meninggalkan jejak yang sama seperti dibahas di §10.11.2-10.11.3 — kalau investigasi butuh kerahasiaan (attacker masih di jaringan), pertimbangkan menjalankan collector di jam yang terkontrol atau terhadap **snapshot/replica** domain, bukan DC produksi langsung.
+
+---
+
+### 10.12 Trust Relationship Forensics
+
+#### 10.12.1 Jenis Trust — Parent-Child, Forest, External, Transitive
+
+**Pengertian & Fungsi:**
+Trust adalah mekanisme yang memungkinkan user di satu domain **mengakses resource di domain/forest lain**. Ini memperluas cakupan investigasi dari §10.1 (satu forest/domain) ke skenario **lintas-domain**, di mana kompromi di satu domain berpotensi merembet lewat jalur trust yang ada.
+
+| Jenis Trust | Arah | Transitivity | Skenario |
+|---|---|---|---|
+| **Parent-Child** | Two-way, otomatis | Transitive | Antar domain dalam satu forest (mis. `corp.local` dan `eu.corp.local`) |
+| **Tree-Root** | Two-way, otomatis | Transitive | Antar domain tree dalam satu forest yang sama |
+| **Forest Trust** | One-way atau two-way, dikonfigurasi manual | Transitive dalam forest, tidak lintas-forest lain | Dua forest terpisah (mis. hasil merger perusahaan) saling trust |
+| **External Trust** | One-way atau two-way, manual | **Non-transitive** | Trust langsung ke satu domain spesifik di forest lain (tanpa forest trust penuh) |
+| **Shortcut Trust** | Manual | Transitive (mengikuti trust asal) | Mempercepat autentikasi antar domain yang jauh secara hierarki dalam forest sama |
+
+```
+Contoh topologi trust (disederhanakan):
+Forest A (corp.local)                    Forest B (partner.local)
+   │                                          │
+   ├── eu.corp.local (child, auto-trust)      │
+   │                                          │
+   └──────────── Forest Trust (manual) ───────┘
+                  (misal karena merger/akuisisi perusahaan)
+```
+
+> ⚠️ **Kenapa trust jadi perluasan attack surface yang sering diabaikan:** Investigasi yang cuma fokus ke satu domain **melewatkan kemungkinan attacker pivot lewat trust** ke domain lain yang punya kontrol keamanan lebih lemah, lalu balik lagi ke domain target lewat jalur yang tidak dimonitor sama ketatnya. Selalu cek §10.12.4 di awal investigasi kalau domain yang ditangani punya trust ke domain/forest lain.
+
+---
+
+#### 10.12.2 SID History Injection & Trust Abuse
+
+**Pengertian & Fungsi:**
+Atribut `SIDHistory` pada objek AD awalnya dirancang untuk migrasi domain (supaya user yang dipindah masih bisa akses resource lama pakai SID lamanya). Attacker dengan akses tingkat tinggi (setara Domain Admin/DCSync) bisa **menyuntikkan SID group privileged** (misal SID Enterprise Admins) ke atribut `SIDHistory` akun manapun — akun itu kemudian **efektif mendapat privilege grup tsb** tanpa benar-benar jadi member grup itu.
+
+| Indikator Deteksi | Detail |
+|---|---|
+| Event 4738 (User Account Changed) dengan perubahan pada atribut `SIDHistory` | Perubahan `SIDHistory` di luar konteks migrasi domain resmi yang sedang berjalan **sangat mencurigakan** |
+| `SIDHistory` berisi SID dari domain/forest lain yang **bukan** hasil migrasi yang terdokumentasi | Bandingkan dengan histori migrasi domain resmi (kalau ada) — SID asing yang tidak match dokumentasi = indikasi injection |
+| Akun dengan privilege rendah di grup lokal tapi bisa akses resource setara Domain Admin | Efek nyata dari SID History abuse — privilege tidak terlihat dari `memberOf` biasa, harus cek `SIDHistory` secara eksplisit |
+
+```powershell
+# Cek semua akun dengan SIDHistory terisi (jalankan di DC, defender-side)
+Get-ADUser -Filter * -Properties SIDHistory | Where-Object { $_.SIDHistory }
+```
+
+> 💡 **Kenapa SID History mudah luput dari review manual:** Karena atribut ini **tidak muncul** di tampilan keanggotaan grup standar (`memberOf`) — admin yang cuma cek keanggotaan grup lewat GUI biasa (ADUC) tidak akan melihat privilege tersembunyi ini. Deteksi realistis butuh query eksplisit ke atribut `SIDHistory` seperti contoh di atas, bukan review visual biasa.
+
+---
+
+#### 10.12.3 Inter-Realm Golden Ticket & Forest Trust Key Compromise
+
+**Pengertian & Fungsi:**
+Konsep ini adalah perluasan Golden Ticket (§10.3.3) melintasi batas trust — attacker yang berhasil mendapat **trust key** (shared secret antar dua domain/forest yang trust) bisa memalsukan tiket yang **diterima di domain/forest lain**, bukan cuma di domain tempat tiket dibuat.
+
+```
+Alur inter-realm ticket abuse (disederhanakan):
+[1] Attacker kompromi penuh Domain A (sudah dapat krbtgt hash, §10.3.3)
+   │
+   ▼
+[2] Attacker ekstrak trust key antara Domain A ↔ Domain B (tersimpan di NTDS.dit Domain A)
+   │
+   ▼
+[3] Attacker buat inter-realm TGT palsu, "ditandatangani" pakai trust key curian
+   │
+   ▼
+[4] Domain B menerima tiket ini sebagai valid (karena trust key cocok) — attacker
+    dapat akses resource di Domain B TANPA pernah kompromi Domain B secara langsung
+```
+
+| Indikator Deteksi | Detail |
+|---|---|
+| EVTX 4769 (TGS Request) di DC Domain B untuk user dari Domain A yang tidak pernah ada 4768 pendahulunya di Domain A | Pola serupa dengan deteksi Golden Ticket biasa (§10.3.3), tapi sekarang dicek di sisi domain **penerima** trust |
+| `krbtgt` Domain A pernah diduga/dikonfirmasi dicuri (§10.3.3) | Kalau ini terjadi, trust key ke SEMUA domain yang trust dengan Domain A juga harus dianggap berisiko — perluas scope investigasi (extend §9.5.1) |
+| Akses resource di Domain B oleh akun Domain A yang secara bisnis tidak masuk akal (tidak pernah ada kolaborasi sebelumnya) | Konteks bisnis penting di sini — trust key abuse sering menghasilkan akses yang "teknisnya valid" tapi "bisnisnya aneh" |
+
+> ⚠️ **Kenapa ini alasan utama untuk selalu reset trust key setelah domain compromise:** Kompromi penuh satu domain (termasuk `krbtgt`) **tidak bisa dianggap selesai ditangani** hanya dengan reset `krbtgt` password dua kali (mitigasi standar Golden Ticket, §10.3.3) — trust key ke domain/forest lain juga harus direset, atau attacker tetap punya jalur masuk ke domain tetangga meski domain asal sudah "dibersihkan".
+
+---
+
+#### 10.12.4 Event ID & Command Enumerasi Trust
+
+| Event ID | Nama | Makna |
+|---|---|---|
+| **4716** | Trusted Domain Information Modified | Konfigurasi trust yang sudah ada berubah — cek apakah perubahan ini terdokumentasi/direncanakan |
+| **4713** | Kerberos Policy Changed | Bisa berkaitan dengan perubahan policy yang memengaruhi trust/cross-realm authentication |
+| **4720** (extend §10.6.1) | User Account Created | Relevan lagi di sini kalau akun baru dibuat dengan `SIDHistory` langsung terisi saat pembuatan |
+
+```powershell
+# Enumerasi trust yang ada (live command, defender-side)
+nltest /domain_trusts
+nltest /domain_trusts /all_trusts
+
+# Detail trust spesifik
+netdom query /domain:corp.local trust
+
+# Cek event perubahan trust
+Get-WinEvent -LogName Security -FilterXPath "*[System[EventID=4716]]"
+```
+
+> 📌 **Langkah awal wajib kalau domain yang diinvestigasi ternyata punya trust:** Jalankan `nltest /domain_trusts` di awal investigasi (bukan di akhir) untuk tahu **berapa banyak domain/forest lain** yang perlu dipertimbangkan dalam scope — trust yang tidak diketahui/didokumentasikan dengan baik ("shadow trust") sendiri sudah jadi temuan penting terlepas dari ada tidaknya bukti abuse aktif.
+
+---
+
+### 10.13 AD CS (Certificate Services) Forensics
+
+#### 10.13.1 Konsep Dasar AD CS — CA, Template, Enrollment
+
+**Pengertian & Fungsi:**
+Active Directory Certificate Services (AD CS) adalah role Windows Server yang menjadikan DC (atau server terpisah) sebagai **Certificate Authority (CA)** internal — menerbitkan sertifikat digital untuk autentikasi (menggantikan/melengkapi password), code signing, enkripsi email, dsb. Sertifikat yang salah dikonfigurasi bisa jadi **jalur privilege escalation dan persistence** yang setara bahkan lebih kuat dari Kerberos ticket abuse (§10.3), karena sertifikat **tidak expired secepat tiket** dan sering luput dari monitoring rutin.
+
+| Komponen | Fungsi |
+|---|---|
+| **Certificate Authority (CA)** | Server yang menerbitkan & menandatangani sertifikat, menyimpan CA private key (aset paling kritis) |
+| **Certificate Template** | "Cetakan" aturan untuk jenis sertifikat tertentu (siapa boleh request, untuk apa sertifikat bisa dipakai) — disimpan sebagai objek AD, bisa dilihat/dimodif lewat ACL seperti objek AD lain |
+| **Enrollment** | Proses user/computer meminta (request) sertifikat berdasarkan template yang mereka punya hak akses |
+| **CA Database** | Database (mirip `NTDS.dit` tapi untuk sertifikat) yang mencatat semua sertifikat yang pernah diterbitkan CA tsb |
+
+> 💡 **Kenapa AD CS relevan langsung ke §10.8.4 (ACL Abuse):** Certificate Template, sama seperti objek AD lainnya, punya ACL sendiri. Template dengan ACL yang terlalu longgar (siapa saja boleh enroll) **dikombinasikan** dengan pengaturan template yang berbahaya (§10.13.2) menghasilkan salah satu vektor privilege escalation paling powerful di AD modern — konsepnya identik dengan ACL abuse di §10.8.4, hanya objeknya sertifikat, bukan user/group.
+
+---
+
+#### 10.13.2 ESC1–ESC8 Ringkas — Vektor Abuse Umum
+
+> 📖 **Cakupan bagian ini:** Tabel berikut adalah **ringkasan konseptual untuk kebutuhan forensik** (memahami apa yang perlu dicari di log/artefak) — bukan panduan eksploitasi teknis mendalam. Detail exploitation AD CS di luar cakupan buku forensik ini.
+
+| Kode | Nama Singkat | Inti Masalah |
+|---|---|---|
+| **ESC1** | Misconfigured Certificate Template — SAN attacker-controlled | Template mengizinkan requester menentukan sendiri `Subject Alternative Name` — bisa request sertifikat atas nama user LAIN (termasuk Domain Admin) |
+| **ESC2** | Template dengan "Any Purpose" atau tanpa EKU (Extended Key Usage) yang membatasi | Sertifikat bisa dipakai untuk tujuan apapun, termasuk autentikasi, walau harusnya cuma untuk keperluan spesifik |
+| **ESC3** | Enrollment Agent template disalahgunakan | Sertifikat "enrollment agent" bisa dipakai untuk request sertifikat ATAS NAMA user lain |
+| **ESC4** | ACL Certificate Template lemah | Sama prinsipnya dengan §10.8.4 — attacker dengan `WriteProperty`/`WriteOwner` pada objek template bisa ubah template jadi vulnerable (mis. tambahkan ESC1) |
+| **ESC5** | ACL objek AD CS lain (CA object, container) lemah | Perluasan ESC4 ke objek AD CS non-template |
+| **ESC6** | CA mengizinkan `EDITF_ATTRIBUTESUBJECTALTNAME2` flag | Setting level-CA (bukan per-template) yang membuat SEMUA template rentan seperti ESC1 |
+| **ESC7** | Hak administratif CA lemah (`ManageCA`/`ManageCertificates`) | Attacker dengan hak ini bisa approve sertifikat yang seharusnya ditolak, atau ubah konfigurasi CA |
+| **ESC8** | NTLM Relay ke HTTP Enrollment Endpoint (`certsrv`) | AD CS Web Enrollment yang mendukung NTLM tanpa proteksi relay — kombinasi dengan teknik coercion (di luar cakupan bab ini) |
+
+> ⚠️ **Kenapa AD CS abuse sering "senyap" dibanding teknik lain di §10.3-10.8:** Sertifikat yang diterbitkan lewat template vulnerable **terlihat seperti proses enrollment normal** dari sisi log dasar — tidak ada exploit terlihat, tidak ada command line mencurigakan. Deteksi realistis butuh audit konfigurasi template (siapa boleh enroll, EKU apa yang diizinkan) SEBELUM insiden, mirip prinsip yang sama dengan ACL abuse §10.8.4.
+
+---
+
+#### 10.13.3 Artefak Forensik — CA Database, Event ID, Certutil
+
+| Sumber | Lokasi/Command | Isi |
+|---|---|---|
+| **CA Database** | `%SystemRoot%\System32\CertLog\` (di server CA) | Database ESE (sama family dengan NTDS.dit, §10.2.1) berisi seluruh sertifikat yang pernah diterbitkan, termasuk request yang ditolak |
+| **certutil (export/query)** | `certutil -view -restrict "Disposition=20"` | Lihat sertifikat yang berhasil diterbitkan (`Disposition=20` = issued) langsung dari CA database |
+| **Event Log CA** | `Security.evtx` di server CA (bukan DC biasa, kecuali CA co-located di DC) | Event ID spesifik AD CS (lihat tabel di bawah) |
+
+| Event ID | Nama | Nilai Forensik |
+|---|---|---|
+| **4886** | Certificate Services Received a Certificate Request | Titik awal — siapa yang request, template apa yang diminta |
+| **4887** | Certificate Services Approved a Certificate Request and Issued a Certificate | Konfirmasi sertifikat benar-benar diterbitkan — bandingkan requester dengan Subject/SAN hasil akhir (indikasi ESC1 kalau tidak match wajar) |
+| **4888** | Certificate Services Denied a Certificate Request | Percobaan yang ditolak — tetap bernilai forensik untuk lihat pola percobaan berulang |
+| **4898** | Certificate Services Loaded a Template | Perubahan/loading template — berguna untuk timeline kapan template vulnerable mulai aktif dipakai |
+
+```powershell
+# Lihat sertifikat yang diterbitkan CA (jalankan di server CA)
+certutil -view -restrict "Disposition=20" -out "RequestID,Request.RequesterName,CertificateTemplate,NotBefore"
+
+# Export detail satu request spesifik berdasarkan Request ID
+certutil -view -restrict "RequestID=<id>"
+
+# Query event AD CS
+Get-WinEvent -LogName Security -FilterXPath "*[System[EventID=4886 or EventID=4887]]"
+```
+
+> 📖 **Cross-reference boot key/hive:** Sama seperti NTDS.dit butuh SYSTEM hive (§10.2.3), CA private key untuk mendekripsi/memvalidasi sertifikat tersimpan terpisah (biasanya di HSM atau Windows key store) — kalau butuh forensik mendalam ke private key CA, ini di luar cakupan parsing biasa dan butuh akses admin CA langsung.
+
+---
+
+#### 10.13.4 Golden Certificate & Certificate-Based Persistence
+
+**Pengertian & Fungsi:**
+Analog langsung dengan Golden Ticket (§10.3.3), tapi untuk sertifikat — attacker yang berhasil mencuri **CA private key** (root of trust seluruh AD CS) bisa membuat sertifikat valid untuk **user manapun** secara offline, tanpa perlu berinteraksi dengan CA sama sekali. Ini "Golden Ticket versi sertifikat", dan sama seperti Golden Ticket, **jauh lebih sulit dideteksi** karena tidak melewati proses enrollment normal (tidak ada 4886/4887 sama sekali).
+
+| Indikator Deteksi | Detail |
+|---|---|
+| Sertifikat valid dipakai untuk autentikasi (`PKINIT`) TANPA ada 4886/4887 pendahulu yang match di CA database | Sama pola deteksi dengan Golden Ticket (tiket tanpa 4768 pendahulu, §10.3.3) — sertifikat "muncul dari mana saja" |
+| Event 4768 dengan **Certificate Information** terisi (PKINIT-based logon) untuk akun yang tidak pernah request sertifikat lewat jalur normal | Cross-reference §10.3.2 — field tambahan di 4768 saat autentikasi berbasis sertifikat digunakan |
+| CA private key pernah diduga/dikonfirmasi diekstrak (mis. lewat DPAPI abuse di server CA, atau backup CA yang tidak aman) | Kalau ini terjadi, **semua sertifikat yang pernah/akan diterbitkan CA tsb harus dianggap tidak terpercaya** — mitigasi butuh revoke seluruh CA hierarchy, bukan cuma satu sertifikat |
+
+> ⚠️ **Kenapa Golden Certificate berpotensi lebih berbahaya dari Golden Ticket:** Golden Ticket (§10.3.3) berhenti berfungsi begitu `krbtgt` password direset dua kali. Golden Certificate, selama CA private key yang sama masih dipakai, **tetap valid sampai CA itu sendiri di-rebuild dengan key baru** — proses yang jauh lebih mahal dan mengganggu (semua sertifikat existing juga jadi tidak valid) dibanding reset satu password `krbtgt`. Root cause harus ditelusuri sampai ke bagaimana CA private key bisa dicuri (biasanya DPAPI/LSASS di server CA, extend §10.4).
+
+---
+
+### 10.14 DNS Forensics dalam Active Directory
+
+#### 10.14.1 AD-Integrated DNS — Struktur & Lokasi Data
+
+**Pengertian & Fungsi:**
+Domain AD hampir selalu memakai **AD-Integrated DNS** — data zone DNS disimpan **di dalam AD itu sendiri** (bukan file zone terpisah seperti DNS server biasa), direplikasi otomatis ke semua DC lewat mekanisme replikasi AD yang sama dibahas di §10.6.2. Ini membuat DNS record jadi salah satu artefak yang paling jarang dibersihkan attacker karena mereka tidak selalu sadar record itu tersimpan sebagai objek AD, bukan cuma "config DNS biasa".
+
+| Lokasi Penyimpanan | Detail |
+|---|---|
+| **Application Partition `DomainDnsZones`** | Zone DNS untuk domain saat ini, direplikasi ke semua DC yang jadi DNS server di domain tsb |
+| **Application Partition `ForestDnsZones`** | Zone DNS yang direplikasi ke SELURUH forest (biasanya zone `_msdcs` untuk service location record) |
+| Objek `dnsNode`/`dnsZone` di NTDS.dit (§10.2) | Setiap DNS record tersimpan sebagai objek AD individual — bisa diekstrak/diperiksa sama seperti objek AD lain |
+
+```bash
+# Export zone DNS untuk pemeriksaan offline
+dnscmd /zoneexport corp.local corp_export.txt
+dnscmd /enumzones
+
+# Lihat record tertentu (live command)
+Get-DnsServerResourceRecord -ZoneName corp.local -RRType A
+```
+
+> 💡 **Kenapa DNS record bisa jadi indikator persistence yang terlewat:** Karena tersimpan sebagai objek AD, DNS record ikut kena mekanisme audit yang sama dengan objek AD lain (Event 5136/5137/5141, §10.6.1) — kalau audit ini aktif, perubahan record DNS mencurigakan (misal record wildcard baru, atau record `wpad` yang seharusnya tidak ada) bisa dilacak persis seperti melacak perubahan GPO (§10.5.4).
+
+---
+
+#### 10.14.2 DNS Server Event Logging
+
+| Log | Lokasi | Isi |
+|---|---|---|
+| **DNS Server log (klasik)** | Event Viewer → Applications and Services Logs → **DNS Server** | Event operasional server DNS: start/stop, zone transfer, error resolusi |
+| **Microsoft-Windows-DNSServer/Audit** | Event Viewer → Applications and Services Logs → Microsoft → Windows → DNS-Server → **Audit** | Perubahan konfigurasi DNS (zone baru, record diubah) — analog ke audit log domain lain di bab ini |
+| **Microsoft-Windows-DNSServer/Analytical** | Sama lokasi, log **Analytical** (biasanya perlu diaktifkan manual, default disabled karena volume tinggi) | Setiap query DNS yang diterima server — granular tapi sangat besar volumenya |
+
+```powershell
+# Cek log audit DNS (biasanya sudah aktif default)
+Get-WinEvent -LogName "Microsoft-Windows-DNSServer/Audit"
+
+# Aktifkan analytical log dulu kalau belum (butuh privilege admin di DNS server)
+wevtutil sl "Microsoft-Windows-DNSServer/Analytical" /e:true
+Get-WinEvent -LogName "Microsoft-Windows-DNSServer/Analytical"
+```
+
+> ⚠️ **Analytical log sering tidak aktif secara default:** Berbeda dari `Security.evtx`/`Audit` log, log **Analytical** untuk query DNS granular biasanya **tidak aktif out-of-the-box** karena volumenya sangat besar di domain aktif. Kalau butuh forensik query-level (siapa query apa, kapan), cek dulu apakah log ini pernah diaktifkan sebelum insiden — kalau tidak, granularitas ini kemungkinan besar tidak tersedia untuk periode yang diinvestigasi.
+
+---
+
+#### 10.14.3 DNS Abuse — Zone Transfer, Dynamic Update, WPAD Spoofing
+
+| Teknik | Cara Kerja | Deteksi |
+|---|---|---|
+| **Unauthorized Zone Transfer (AXFR)** | Attacker request transfer seluruh isi zone DNS — kalau zone transfer tidak dibatasi ke DC sah saja, attacker dapat **peta lengkap semua hostname internal** sekaligus | DNS Server log mencatat permintaan zone transfer; cek konfigurasi "Zone Transfer" pada properti zone dibatasi ke server tertentu saja |
+| **DNS Dynamic Update Abuse** | AD-Integrated DNS mendukung dynamic update (komputer domain-joined update record sendiri) — kalau update tidak di-restrict ke "secure only", attacker bisa suntik/overwrite record DNS arbitrary | Event Audit log untuk perubahan record yang berasal dari host tidak wajar; cek setting zone "Dynamic Updates: Secure Only" |
+| **WPAD Record Injection/Spoofing** | Attacker membuat record `wpad.corp.local` palsu untuk membajak proxy auto-discovery browser di seluruh domain — klasik untuk **NTLM relay/credential harvesting** massal | Cek keberadaan record `wpad` yang tidak seharusnya ada (banyak domain modern sengaja block nama ini lewat **WPAD block entry**); Sysmon 22 (§10.9.1, §10.14.4) untuk volume query `wpad` dari banyak host |
+
+```powershell
+# Cek apakah ada record wpad yang tidak wajar
+Get-DnsServerResourceRecord -ZoneName corp.local -RRType A | Where-Object { $_.HostName -match "wpad" }
+
+# Cek konfigurasi WPAD block (seharusnya ada sebagai global query block list)
+Get-DnsServerGlobalQueryBlockList
+```
+
+> 📌 **Kenapa WPAD record jadi salah satu teknik lama yang tetap relevan di CTF/real-world:** Banyak domain lupa mengaktifkan WPAD block entry (mitigasi standar sejak beberapa tahun lalu), sehingga record `wpad` palsu yang dibuat attacker (butuh privilege minimal — kadang cukup dynamic update biasa) langsung diikuti seluruh browser di domain, menghasilkan **credential harvesting skala domain** tanpa perlu compromise satu-satu.
+
+---
+
+#### 10.14.4 Korelasi Sysmon Event ID 22 dengan Query DNS Domain
+
+**Pengertian & Fungsi:**
+Sysmon Event ID 22 (DNS Query), yang sudah disinggung sekilas di §10.9.1 sebagai prioritas domain, dibahas lebih dalam di sini khusus untuk korelasi dengan DNS forensics — event ini dicatat di **sisi client** (host yang melakukan query), melengkapi log di sisi **server DNS** (§10.14.2) yang baru dibahas.
+
+```
+Korelasi dua sisi untuk kasus WPAD spoofing (§10.14.3):
+[Sisi Client] Sysmon 22 — banyak host query "wpad.corp.local" dalam window singkat
+        │
+        ▼
+[Sisi DNS Server] Audit log — record "wpad" dibuat/diubah tepat sebelum lonjakan query di atas
+        │
+        ▼
+[Sisi Client] Sysmon 3 (Network Connection) — host-host tsb koneksi ke IP hasil resolve wpad
+        (kemungkinan IP attacker, bukan proxy sah)
+        │
+        ▼
+REKONSTRUKSI: Attacker membuat record wpad palsu → seluruh domain otomatis
+"mengikuti" proxy palsu tsb → credential/traffic relay
+```
+
+| Kombinasi Sumber | Kekuatan Korelasi |
+|---|---|
+| Sysmon 22 (client) + DNS Audit log (server) saja | Cukup untuk konfirmasi "record dibuat, lalu banyak host query" — tapi belum konfirmasi dampak |
+| + Sysmon 3 (Network Connection) ke IP hasil resolve | Konfirmasi penuh bahwa host benar-benar terhubung ke tujuan hasil DNS spoofing, bukan cuma query yang gagal/di-block |
+
+> 💡 **Prinsip yang sama berulang dari Bab 9 §9.1.1:** Persis seperti korelasi Sysmon host + EVTX DC di §10.9.2, DNS forensics paling kuat ketika **sisi client (Sysmon 22/3) dan sisi server (DNS Audit log)** dikombinasikan — satu sisi saja gampang menghasilkan kesimpulan yang salah (mis. host query wpad karena browser default behavior yang wajar-wajar saja, tanpa tahu ternyata record-nya memang sudah dispoof di sisi server).
+
+---
+
+### 10.15 Master Correlation Matrix — AD Attack Chain vs Artefak
 
 > 📖 Mengikuti format Bab 9 §9.11, tabel ini versi khusus domain — dipetakan sepanjang **attack chain khas domain compromise**, dari initial foothold sampai domain dominance.
 
@@ -702,19 +1167,22 @@ Contoh korelasi:
 |---|---|---|---|---|
 | Initial Foothold | Phishing/exploit di satu workstation | Sama seperti Bab 8-9 (evidence of execution) | — | Bab 8, 9 |
 | Credential Harvesting | LSASS dump (Mimikatz/procdump/comsvcs.dll) | Sysmon 10, Prefetch/Amcache tool dumping | File `.dmp` tertinggal di disk | §10.4 |
-| Reconnaissance Domain | `dsquery`/`AdFind`/BloodHound collector | Sysmon 1 (CommandLine), Sysmon 22 (DNS query LDAP) | Volume LDAP query tidak wajar (butuh DC-side logging) | §10.9.1 |
+| Reconnaissance Domain | `dsquery`/`AdFind`/PowerView LDAP query, SharpHound collector run | Sysmon 1 (CommandLine), Sysmon 22 (DNS query LDAP), Directory Service Access 4661/4662 volume tinggi | Volume LDAP query tidak wajar (butuh DC-side logging), file output BloodHound (`*.json`/`*.zip`) di disk | §10.9.1, §10.10, §10.11 |
 | Kerberoasting/AS-REP Roasting | Request SPN/TGT massal | EVTX 4769/4768 volume tinggi dari satu user | Encryption type RC4 (indikasi downgrade) | §10.3.2, §10.3.4 |
 | Lateral Movement | PsExec/WMI/WinRM/Pass-the-Hash | EVTX 4624 Type 3, 4648, Sysmon 1/3 di host target | EVTX 4769 di DC berkorelasi waktu | §10.7 |
-| Privilege Escalation | Group membership abuse, ACL abuse | EVTX 4728/4732, 4738 | 5136 pada ACL objek terkait | §10.6.1, §10.8.4 |
+| Privilege Escalation (Group/ACL) | Group membership abuse, ACL abuse | EVTX 4728/4732, 4738 | 5136 pada ACL objek terkait | §10.6.1, §10.8.4 |
+| Privilege Escalation (Certificate) | AD CS template misconfiguration (ESC1-ESC8) | EVTX 4886/4887/4898 di CA server, certutil request log | Sertifikat dengan `certificateTemplate` mencurigakan pada akun privileged | §10.13 |
+| Cross-Domain/Forest Movement | SID History injection, inter-realm ticket abuse via trust | EVTX 4738 (SID History diubah), EVTX 4769 dengan realm lintas-domain | `nltest /domain_trusts` menunjukkan trust yang tidak wajar/undocumented | §10.12 |
 | Domain Dominance | DCSync | EVTX 4662 dengan GUID replikasi spesifik | Source computer bukan DC sah | §10.8.1 |
-| Persistence Domain-Wide | Golden Ticket, GPO abuse, AdminSDHolder | Tiket tanpa 4768 pendahulu (§10.3.3), 5136 pada AdminSDHolder | GPO version number berubah tanpa change request resmi | §10.3.3, §10.5.2, §10.8.2 |
+| Persistence Domain-Wide | Golden Ticket, GPO abuse, AdminSDHolder, Golden Certificate | Tiket tanpa 4768 pendahulu (§10.3.3), 5136 pada AdminSDHolder, sertifikat dari CA key yang dicuri | GPO version number berubah tanpa change request resmi | §10.3.3, §10.5.2, §10.8.2, §10.13.4 |
+| Persistence via DNS | DNS record poisoning (WPAD, wildcard record) untuk relay/MITM internal | Event ID DNS Server log (§10.14.2) untuk record creation tidak wajar | Sysmon 22 query WPAD dari banyak host dalam window singkat | §10.14 |
 | Anti-Forensik Domain | Log DC dihapus/dimatikan, reboot DC untuk hapus Skeleton Key | EVTX 1102 di DC (sama seperti Bab 9 §9.9.1) | Directory Service log gap, replikasi metadata hilang | Bab 9 §9.9, §10.8.3 |
 
 > ⚠️ **Cara pakai tabel ini:** Attack chain domain jarang berhenti di satu tahap — investigasi yang baik menelusuri **dari bawah tabel ke atas** (mulai dari indikasi domain dominance yang biasanya paling jelas/mencolok, mundur ke initial foothold) SEKALIGUS **dari atas ke bawah** (dari titik masuk yang diketahui, maju untuk cari dampak) — persis prinsip §9.5.1, hanya sekarang tahapannya lebih banyak dan melibatkan lebih dari satu mesin.
 
 ---
 
-### 10.11 Cheat Sheet — Commands & Tools
+### 10.16 Cheat Sheet — Commands & Tools
 
 ```bash
 # ===== NTDS.dit EXTRACTION =====
@@ -752,11 +1220,52 @@ Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" -FilterXPath "*[Sys
 # ===== GPP PASSWORD SEARCH (SYSVOL) =====
 Get-ChildItem -Path "\\domain\SYSVOL\domain\Policies" -Recurse -Include *.xml |
     Select-String -Pattern "cpassword"
+
+# ===== LDAP ENUMERATION (defender-side re-run untuk verifikasi apa yang bisa dilihat attacker) =====
+dsquery user -limit 0
+dsquery * "DC=corp,DC=local" -filter "(userAccountControl:1.2.840.113556.1.4.803:=2)"
+ldapsearch -x -H ldap://dc_ip -D "" -w "" -b "DC=corp,DC=local"   # cek anonymous bind
+
+# ===== DIRECTORY SERVICE ACCESS EVENT (LDAP query volume, jalankan di DC) =====
+Get-WinEvent -LogName Security -FilterXPath "*[System[EventID=4661 or EventID=4662]]"
+Get-WinEvent -LogName "Directory Service" -FilterXPath "*[System[EventID=1644]]"   # expensive/inefficient LDAP search
+
+# ===== BLOODHOUND / SHARPHOUND ARTIFACT HUNT (di host yang dicurigai jadi sumber koleksi) =====
+Get-ChildItem -Path C:\ -Recurse -Include *.zip,*BloodHound*.json -ErrorAction SilentlyContinue
+Get-WinEvent -LogName Security -FilterXPath "*[System[EventID=4688]]" |
+    Where-Object { $_.Message -match "SharpHound|bloodhound-python|azurehound" }
+
+# ===== TRUST ENUMERATION =====
+nltest /domain_trusts
+nltest /domain_trusts /all_trusts
+netdom query /domain:corp.local trust
+
+# ===== SID HISTORY CHECK (defender-side, cari SID History tidak wajar) =====
+Get-ADUser -Filter * -Properties SIDHistory | Where-Object { $_.SIDHistory }
+
+# ===== AD CS ENUMERATION & VULNERABLE TEMPLATE CHECK =====
+certutil -config - -ping
+certutil -catemplates
+certutil -viewstore
+certipy find -u user@corp.local -p 'password' -dc-ip <dc_ip> -vulnerable
+
+# ===== AD CS EVENT QUERY (jalankan di CA server) =====
+Get-WinEvent -LogName Security -FilterXPath "*[System[EventID=4886 or EventID=4887 or EventID=4898]]"
+
+# ===== DNS FORENSICS (AD-Integrated DNS) =====
+dnscmd /zoneexport corp.local corp_export.txt
+dnscmd /enumzones
+Get-WinEvent -LogName "Microsoft-Windows-DNSServer/Audit" | Select-Object -First 50
+Get-WinEvent -LogName "Microsoft-Windows-DNSServer/Analytical"
+
+# ===== WPAD / DNS RECORD ABUSE CHECK =====
+nslookup wpad.corp.local
+Get-DnsServerResourceRecord -ZoneName corp.local -RRType A | Where-Object { $_.HostName -match "wpad" }
 ```
 
 ---
 
-### 10.12 Mini Case Study — Domain Compromise Investigation
+### 10.17 Mini Case Study — Domain Compromise Investigation
 
 **Skenario:** Sebuah workstation finance (`FIN-WS01`) dilaporkan menunjukkan aktivitas mencurigakan. Investigasi awal ditugaskan cuma untuk workstation itu, tapi menemukan indikasi domain compromise yang lebih luas.
 
